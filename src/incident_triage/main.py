@@ -5,6 +5,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from incident_triage.config import Settings, load_settings
+from incident_triage.db import init_db
 from incident_triage.errors import register_error_handlers
 from incident_triage.observability import CorrelationIdMiddleware, configure_logging
 from incident_triage.routes import router
@@ -20,6 +21,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "llm_api_key_not_set",
             detail="/assist is unavailable until LLM_API_KEY is set (in .env or the environment)",
         )
+
+    init_db(settings.DB_PATH)
 
     app = FastAPI(title="Incident Triage")
     app.state.settings = settings

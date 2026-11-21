@@ -37,6 +37,29 @@ curl -i http://localhost:8000/healthz
 
 Every response carries an `X-Correlation-ID` header. To use your own ID, send the header; otherwise one is generated. Every log line for that request includes the ID.
 
+## Data
+
+The dataset is synthetic: 300 Incidents in `data/incidents.jsonl`, committed to the repo. It's generated from curated failure templates and a pinned `faker`, with seed 42, so regenerating it gives byte-identical output:
+
+```bash
+uv run python scripts/generate_incidents.py          # options: --count 300 --seed 42 --out data/incidents.jsonl
+```
+
+## Ingest
+
+`POST /ingest` takes newline-delimited JSON (one Incident per line), up to 5 MB and 1,000 lines:
+
+```bash
+curl -s -X POST http://localhost:8000/ingest \
+  -H 'Content-Type: application/x-ndjson' \
+  --data-binary @data/incidents.jsonl
+# {"ingested":300,"updated":0,"skipped":0}
+```
+
+It's idempotent. Records are matched on `id`, and a hash of their content decides whether a known record counts as `updated` (changed) or `skipped` (unchanged). Running it a second time gives `{"ingested":0,"updated":0,"skipped":300}`.
+
+The batch is atomic. If any line is invalid, nothing is written, and the 422 response lists up to 50 problems as `{line, field, message}`. An `id` repeated within one batch counts as a problem. A wrong `Content-Type` gives 415, and an oversized body gives 413.
+
 ## Errors
 
 Every error has the same shape:
