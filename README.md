@@ -72,6 +72,38 @@ It's idempotent. Records are matched on `id`, and a hash of their content decide
 
 The batch is atomic. If any line is invalid, nothing is written, and the 422 response lists up to 50 problems as `{line, field, message}`. An `id` repeated within one batch counts as a problem. A wrong `Content-Type` gives 415, and an oversized body gives 413.
 
+## Search
+
+`GET /search` runs a ranked full-text search over title, description, resolution summary and tags, with optional filters:
+
+```bash
+# text search
+curl -s -G http://localhost:8000/search --data-urlencode "q=sso login failing"
+
+# text + filters (tags repeat, and every tag must match)
+curl -s -G http://localhost:8000/search --data-urlencode "q=timeout" \
+  -d environment=prod -d severity=SEV2 -d tags=report
+
+# filters only (newest first), paginated
+curl -s "http://localhost:8000/search?service=benefits&tags=enrollment&limit=5&offset=5"
+```
+
+The response looks like this:
+
+```json
+{"total": 62, "limit": 10, "offset": 0,
+ "results": [{"id": 17, "title": "Users unable to log in via single sign-on",
+              "snippet": "SSO logins failed with an 'invalid assertion' error…", "score": 7.786,
+              "service": "auth", "environment": "prod", "severity": "SEV2",
+              "created_at": "2026-01-19T10:19:20Z"}]}
+```
+
+- **Ranking:** results match **any** word of `q`, ranked by BM25. A match in the title counts most (×3), then tags (×2), then description and resolution summary (×1). Equal scores are ordered newest first. `score` is higher for more relevant results and `null` for filter-only searches.
+- **Input handling:** `q` is treated as plain words. Search syntax such as quotes, `AND`, `NEAR`, `title:` or `*` has no special meaning.
+- **Filters:** `environment`, `service` and `severity` take one value each. Repeat `tags` to require several.
+- **Limits:** `limit` is 1–50 (default 10), `offset` is ≥ 0, and `q` is at most 500 characters.
+- **Errors:** with neither `q` nor a filter, the response is 400. Invalid or unknown parameters return 422.
+
 ## Incident details
 
 `GET /incidents/{id}` returns the full Incident record:

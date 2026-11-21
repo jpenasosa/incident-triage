@@ -3,12 +3,12 @@
 from collections.abc import Iterator
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Request
+from fastapi import APIRouter, Depends, Path, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from incident_triage.db import connect
 from incident_triage.errors import AppError
-from incident_triage.models import MAX_INCIDENT_ID, Incident, IngestResult
+from incident_triage.models import MAX_INCIDENT_ID, Incident, IngestResult, SearchPage, SearchQuery
 from incident_triage.repository import SqliteIncidentRepository
 from incident_triage.service import IncidentService
 
@@ -56,6 +56,11 @@ async def ingest(request: Request, service: ServiceDep) -> IngestResult:
     except UnicodeDecodeError as exc:
         raise AppError("Body must be UTF-8") from exc
     return await run_in_threadpool(service.ingest_ndjson, text)
+
+
+@router.get("/search")
+def search(query: Annotated[SearchQuery, Query()], service: ServiceDep) -> SearchPage:
+    return service.search(query)
 
 
 @router.get("/incidents/{incident_id}")
