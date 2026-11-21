@@ -8,7 +8,7 @@ import structlog
 from pydantic import ValidationError
 
 from incident_triage.errors import AppError, NotFoundError
-from incident_triage.models import Incident, IngestResult
+from incident_triage.models import Incident, IngestResult, SearchPage, SearchQuery
 from incident_triage.repository import IncidentRepository
 
 MAX_INGEST_LINES = 1000
@@ -38,6 +38,19 @@ class IncidentService:
         result = self._repository.upsert_many(incidents)
         log.info("ingest_completed", **result.model_dump())
         return result
+
+    def search(self, query: SearchQuery) -> SearchPage:
+        if query.q is None and not query.has_filters:
+            raise AppError("Provide a text query `q`, at least one filter, or both")
+        page = self._repository.search(query)
+        log.info(
+            "search_completed",
+            q=query.q,
+            filters=query.model_dump(include={"environment", "service", "severity", "tags"}),
+            total=page.total,
+            returned=[r.id for r in page.results],
+        )
+        return page
 
     def get_incident(self, incident_id: int) -> Incident:
         incident = self._repository.get(incident_id)

@@ -137,3 +137,22 @@ These are the prompts used with AI tools during the build, recorded as they were
   far more efficient to use sequential integers. At scale that prefix can add up. Why did you choose that
   pattern over a simple integer primary key?
   ```
+
+---
+
+**Prompt #6**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Implement ticket 04: `GET /search` with text search, filters, ranking and pagination.
+* Prompt (copy/paste):
+
+  ```
+  I already recreated the db. Ticket 03 has been merged, we can move on to ticket 04.
+  ```
+* Result summary:
+  * Added `build_match_query()`, which turns user text into quoted terms joined with OR.
+  * Added `SqliteIncidentRepository.search` (weighted BM25, `snippet()`, filters, `json_each` for tags, a shared count) and `IncidentService.search` (400 when there's no `q` and no filter).
+  * `SearchQuery` is used directly as FastAPI's query-parameter model.
+  * Wrote 38 new tests and smoke-tested against the real dataset.
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why): _(to fill in after review)_

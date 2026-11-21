@@ -1,5 +1,6 @@
 """Domain model: Incident and its vocabularies (see GLOSSARY.md)."""
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Annotated
 
@@ -60,11 +61,16 @@ def _dedupe(tags: list[str]) -> list[str]:
     return list(dict.fromkeys(tags))
 
 
+def _to_utc(value: datetime) -> datetime:
+    # Stored as ISO text; one offset keeps lexical order == chronological order.
+    return value.astimezone(UTC)
+
+
 class Incident(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: IncidentId
-    created_at: AwareDatetime
+    created_at: Annotated[AwareDatetime, AfterValidator(_to_utc)]
     environment: Environment
     service: Service
     severity: Severity
@@ -78,3 +84,46 @@ class IngestResult(BaseModel):
     ingested: int = 0
     updated: int = 0
     skipped: int = 0
+
+
+MAX_SEARCH_LIMIT = 50
+
+
+def _blank_to_none(value: object) -> object:
+    return None if isinstance(value, str) and not value.strip() else value
+
+
+class SearchQuery(BaseModel):
+    """Search parameters. Used directly as the /search query-parameter model."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    q: Annotated[str | None, BeforeValidator(_blank_to_none)] = Field(default=None, max_length=500)
+    environment: Environment | None = None
+    service: Service | None = None
+    severity: Severity | None = None
+    tags: list[Tag] = Field(default=[], max_length=20)
+    limit: int = Field(default=10, ge=1, le=MAX_SEARCH_LIMIT)
+    offset: int = Field(default=0, ge=0)
+
+    @property
+    def has_filters(self) -> bool:
+        return bool(self.environment or self.service or self.severity or self.tags)
+
+
+class SearchResult(BaseModel):
+    id: int
+    title: str
+    snippet: str
+    score: float | None  # higher is more relevant; None for filter-only searches
+    service: Service
+    environment: Environment
+    severity: Severity
+    created_at: datetime
+
+
+class SearchPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    results: list[SearchResult]

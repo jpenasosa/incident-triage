@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 
-from incident_triage.models import Incident, IngestResult
+from incident_triage.models import Incident, IngestResult, SearchPage, SearchQuery
 
 
 class FakeIncidentRepository:
@@ -19,3 +19,7 @@ class FakeIncidentRepository:
 
     def get(self, incident_id: int) -> Incident | None:
         return self._by_id.get(incident_id)
+
+    def search(self, query: SearchQuery) -> SearchPage:
+        self.searched = query
+        return SearchPage(total=0, limit=query.limit, offset=query.offset, results=[])
