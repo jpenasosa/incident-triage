@@ -19,7 +19,7 @@ All configuration is through environment variables. A `.env` file in the repo ro
 | `LLM_MODEL` | `claude-sonnet-5-5` | |
 | `LLM_BASE_URL` | per provider | Overrides the provider's URL, for any OpenAI-compatible endpoint |
 | `LLM_TIMEOUT_SECONDS` | `20` | |
-| `DB_PATH` | `data/incidents.db` | SQLite file |
+| `DB_PATH` | `data/incidents.db` | SQLite file. Delete it after schema changes (see [Database and schema changes](#database-and-schema-changes)) |
 | `PORT` | `8000` | |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
 
@@ -39,11 +39,23 @@ Every response carries an `X-Correlation-ID` header. To use your own ID, send th
 
 ## Data
 
-The dataset is synthetic: 300 Incidents in `data/incidents.jsonl`, committed to the repo. It's generated from curated failure templates and a pinned `faker`, with seed 42, so regenerating it gives byte-identical output:
+The dataset is synthetic and isn't committed. Generate it before the first ingest. It's built from curated failure templates and a pinned `faker`, with seed 42, so every run writes the same 300 Incidents to `data/incidents.jsonl`, byte for byte:
 
 ```bash
 uv run python scripts/generate_incidents.py          # options: --count 300 --seed 42 --out data/incidents.jsonl
 ```
+
+### Database and schema changes
+
+The SQLite database lives at `DB_PATH` (default `data/incidents.db`). The schema is applied **only when that file doesn't exist yet**: the first start creates it and logs `database_initialized`. There is no migrations tool, so **after changing anything in `src/incident_triage/schema/`, delete the database and ingest again**:
+
+```bash
+rm data/incidents.db
+uv run start        # recreates the database with the new schema
+# then ingest again (see below)
+```
+
+Delete the file in the same way if the first start failed part-way, because a half-initialised file is never re-initialised.
 
 ## Ingest
 
@@ -52,7 +64,7 @@ uv run python scripts/generate_incidents.py          # options: --count 300 --se
 ```bash
 curl -s -X POST http://localhost:8000/ingest \
   -H 'Content-Type: application/x-ndjson' \
-  --data-binary @data/incidents.jsonl
+  --data-binary @data/incidents.jsonl   # generate it first (see Data)
 # {"ingested":300,"updated":0,"skipped":0}
 ```
 

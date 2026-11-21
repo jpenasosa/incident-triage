@@ -1,7 +1,8 @@
 """SQLite connection handling and schema setup.
 
-Schema lives in `schema/*.sql`, applied in filename order. Every statement must be
-idempotent (`IF NOT EXISTS`); there is no migrations tool.
+Schema lives in `schema/*.sql`, applied in filename order when the database file is
+first created. There is no migrations tool: to pick up schema changes, delete the
+database file and re-ingest.
 """
 
 import sqlite3
@@ -25,9 +26,15 @@ def connect(db_path: Path) -> Generator[sqlite3.Connection, None, None]:
         conn.close()
 
 
-def init_db(db_path: Path) -> None:
-    """Create the database file and apply the schema. Called at app startup."""
+def init_db(db_path: Path) -> bool:
+    """Create the database and apply the schema, unless the file already exists.
+
+    Called at app startup. Returns True if a new database was initialised.
+    """
+    if db_path.exists():
+        return False
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with connect(db_path) as conn, conn:  # second `conn`: commit, or roll back on error
         for sql_file in sorted(SCHEMA_DIR.glob("*.sql")):
             conn.executescript(sql_file.read_text())
+    return True

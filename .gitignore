@@ -9,6 +9,8 @@ __pycache__/
 .ruff_cache/
 
 # Local data and secrets
+# Generated dataset: uv run python scripts/generate_incidents.py
+data/incidents.jsonl
 *.db
 *.db-journal
 .env

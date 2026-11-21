@@ -33,6 +33,7 @@ _This is a running log, updated with each ticket and finalised in ticket 08._
 - The OpenAI-compatible layer for Anthropic isn't production-grade, according to Anthropic (ADR 0002).
 - **The synthetic text repeats.** There are 24 failure templates, and only numbers and weekdays vary. That's realistic enough for search and assist demos, but many Incidents look alike.
 - **The hash covers the whole record.** A change to any field, including `created_at`, counts as `updated`. There's no notion of which fields matter.
+- **The schema is applied only when the database file is new.** Adding a schema file later has no effect on an existing database: delete `data/incidents.db` and ingest again. If the first initialisation fails part-way, the file is left behind and later starts skip it, so delete the file in that case too.
 - **Ingest runs in one transaction per request.** At 1,000 lines that's fast, about 30 ms for 300 lines. Much larger batches would need chunking.
 
 ## With 2 more hours
