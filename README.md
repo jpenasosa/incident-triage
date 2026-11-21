@@ -10,11 +10,11 @@ Vocabulary: [`GLOSSARY.md`](GLOSSARY.md). Key decisions: [`docs/adr/`](docs/adr/
 
 ## Configuration
 
-All configuration is through environment variables. A `.env` file in the repo root is also read.
+All configuration is through environment variables. A `.env` file in the repo root is also read, and `example.env` is a template for it. Variables already set in the environment take precedence over `.env`.
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `LLM_API_KEY` | none (required) | The app refuses to start without it. Use `dummy` to run everything except `/assist`. |
+| `LLM_API_KEY` | none | Only `/assist` needs it. Without it, a warning is logged at startup and `/assist` returns 503. |
 | `LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` |
 | `LLM_MODEL` | `claude-sonnet-5-5` | |
 | `LLM_BASE_URL` | per provider | Overrides the provider's URL, for any OpenAI-compatible endpoint |
@@ -27,8 +27,8 @@ All configuration is through environment variables. A `.env` file in the repo ro
 
 ```bash
 uv sync
-export LLM_API_KEY=<your-provider-key>   # or: export LLM_API_KEY=dummy
-uv run python -m incident_triage
+cp example.env .env   # set LLM_API_KEY in .env to use /assist
+uv run start
 ```
 
 ```bash

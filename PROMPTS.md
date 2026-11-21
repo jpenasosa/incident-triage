@@ -61,5 +61,23 @@ These are the prompts used with AI tools during the build, recorded as they were
   got it, start ticket 01
   ```
 * Result summary: It built the app factory, `Settings`, structlog JSON logging, the correlation-ID middleware, error handlers and 8 tests, then smoke-tested the real server.
-* What you kept: _(to fill in after review)_
-* What you changed manually (and why): _(to fill in after review)_
+* What you kept: The middleware design, the error shape, structlog config and the tests.
+* What you changed manually (and why):
+  * Made `__main__.py` a thin wrapper, with `load_settings()` exiting by itself. I also added `uv run start` through `[project.scripts]` for ease of use.
+  * Moved routes to `routes.py`, which is the API layer for all future endpoints.
+  * Removed an over-built loop that collected settings problems into a list. Pydantic's own message plus a one-line hint is enough. Settings fields are now upper case, so they match the env var names exactly.
+  * Added `example.env`, so setup is `cp example.env .env`.
+  * Made `LLM_API_KEY` optional, which reverses the earlier "fail at startup" decision. Search and ingest should work without an LLM key. The app logs a startup WARNING, and `/assist` fails fast.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  Do we really need to build the `problems` array? I was just testing without wrapping
+  `Settings()` in a try-except block and the end result is identical. [...]
+  Is there a benefit to the try-except?
+  ```
+
+  ```
+  I changed my mind about the `LLM_API_KEY` requirement. Let's make it optional and fail
+  fast if `/assist` is called without the key set. `create_app` will log a warning if it
+  is not set.
+  ```

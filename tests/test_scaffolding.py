@@ -4,7 +4,8 @@ import uuid
 import pytest
 from fastapi import Query
 
-from incident_triage.config import ConfigError, load_settings
+from incident_triage.config import Settings, load_settings
+from incident_triage.main import create_app
 from incident_triage.observability import CORRELATION_HEADER
 
 
@@ -81,9 +82,25 @@ def test_every_request_log_line_has_correlation_id(app, client, capsys):
     assert all(line["correlation_id"] == "cid-log" for line in lines)
 
 
-def test_missing_api_key_fails_with_actionable_message(monkeypatch, tmp_path):
-    monkeypatch.delenv("LLM_API_KEY", raising=False)
+def test_missing_api_key_logs_warning_but_app_starts(settings, capsys):
+    create_app(settings)  # settings fixture has no LLM_API_KEY
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    assert any(
+        line["event"] == "llm_api_key_not_set" and line["level"] == "warning" for line in lines
+    )
+
+
+def test_blank_api_key_counts_as_unset():
+    assert Settings(LLM_API_KEY="  ", _env_file=None).LLM_API_KEY is None
+
+
+def test_invalid_setting_exits_with_variable_name(monkeypatch, tmp_path):
+    monkeypatch.setenv("PORT", "abc")
     monkeypatch.chdir(tmp_path)  # no .env file here
 
-    with pytest.raises(ConfigError, match="export LLM_API_KEY="):
+    with pytest.raises(SystemExit) as exc:
         load_settings()
+
+    assert "Invalid configuration" in str(exc.value.code)
+    assert "PORT" in str(exc.value.code)

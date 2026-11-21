@@ -11,6 +11,9 @@ dependencies = [
     "uvicorn>=0.54.0",
 ]
 
+[project.scripts]
+start = "incident_triage.main:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
