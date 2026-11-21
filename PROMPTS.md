@@ -156,3 +156,41 @@ These are the prompts used with AI tools during the build, recorded as they were
   * Wrote 38 new tests and smoke-tested against the real dataset.
 * What you kept: _(to fill in after review)_
 * What you changed manually (and why): _(to fill in after review)_
+
+---
+
+**Prompt #7**
+
+* Tool used: Claude Code (Claude Opus 5.5), with the `claude-api` skill and the live Anthropic docs
+* Goal: Implement ticket 05: a provider-agnostic LLM client with strict JSON output, a timeout, and opaque error mapping.
+* Prompt (copy/paste):
+
+  ```
+  Ticket 04 was merged, please start ticket 05.
+  ```
+* Result summary:
+  * Built `OpenAICompatibleClient`: a provider-to-base-URL mapping with an `LLM_BASE_URL` override, `response_format` with a strict `json_schema` generated from the Pydantic output model, `max_completion_tokens=16000`, `max_retries=1`, and no sampling parameters.
+  * Every SDK error, unusable output and missing key maps to `AssistUnavailable` (503) and is logged once at ERROR.
+  * Added a fake client for ticket 06 and 18 tests that use a stub SDK.
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why):
+  * Replaced the hand-rolled `SimpleNamespace` SDK stub with `unittest.mock.MagicMock`. It's the standard tool, and `call_args` and `assert_called_once` replace custom recording code. Running the file alone then exposed a test that depended on order: it parsed JSON logs, which are only configured once `create_app()` has run. That was fixed with an autouse `configure_logging` fixture.
+  * Added `google` (Gemini) as a third `LLM_PROVIDER`. That's one entry in the base-URL map, plus the config literal, a test and docs. The base URL was checked against Google's compatibility page. Its strict `json_schema` and `max_completion_tokens` support aren't documented there, so they're listed as unverified in `TRADEOFFS.md`.
+  * Switched the default provider to OpenAI (`LLM_PROVIDER=openai`, `LLM_MODEL=gpt-6-luna`) after trouble with the Anthropic account. Anthropic and Google remain selectable.
+  * After review, handled an empty `choices` list and `APIResponseValidationError`, and added an `OpenAIError` catch-all. All of them previously escaped as unhandled 500s instead of a 503.
+  * Dropped multi-provider support, after the Anthropic account issues, and moved from Chat Completions to the OpenAI Responses API (`responses.parse`). `LLM_PROVIDER` was removed and `store=False` added. ADR 0004 supersedes ADR 0002. A live call was confirmed.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  I configured an API key. Let's simplify the LLM client and only use openai as the LLM provider.
+  We can remove the LLM_PROVIDER config since it won't be needed anymore. We should also be using
+  the Responses API instead of Chat Completions since we don't need to worry about compatibility
+  with Anthropic and Google Gemini
+  ```
+
+  ```
+  response.choices[0] raises IndexError if the provider returns a valid response with no choices.
+  That escapes the client's error mapping and becomes an unhandled 500, contrary to the ticket's
+  requirement that invalid output raise AssistUnavailable and return a 503. Handle an empty choices
+  list explicitly. Consider also mapping SDK response-validation errors to AssistUnavailable.
+  ```

@@ -3,6 +3,13 @@ from fastapi.testclient import TestClient
 
 from incident_triage.config import Settings
 from incident_triage.main import create_app
+from incident_triage.observability import configure_logging
+
+
+@pytest.fixture(autouse=True)
+def json_logging():
+    """Every test sees the production JSON log format, regardless of test order."""
+    configure_logging("INFO")
 
 
 @pytest.fixture

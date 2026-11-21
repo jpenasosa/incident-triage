@@ -1,3 +1,7 @@
+---
+status: superseded by ADR 0004
+---
+
 # OpenAI-compatible LLM client for all providers
 
 We call every LLM provider, Anthropic included, through the `openai` SDK. `LLM_PROVIDER` maps to a `base_url`, and an optional `LLM_BASE_URL` overrides it. This keeps one small client and makes it cheap to try models across providers while prototyping.
