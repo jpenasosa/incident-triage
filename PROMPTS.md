@@ -81,3 +81,34 @@ These are the prompts used with AI tools during the build, recorded as they were
   fast if `/assist` is called without the key set. `create_app` will log a warning if it
   is not set.
   ```
+
+---
+
+**Prompt #4**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Implement ticket 02: the Incident model, a deterministic generator, the SQLite repository and an idempotent `POST /ingest`.
+* Prompt (copy/paste):
+
+  ```
+  merged, let's move on to ticket #2
+  ```
+* Result summary:
+  * Built the `Incident` model with enums, a template and Faker generator (byte-identical across runs), and `SqliteIncidentRepository` (upsert, content hash, FTS5 kept in sync).
+  * Added `IncidentService.ingest_ndjson` (atomic, errors per line, duplicate-id detection) and a thin async route that reads the body with a size cap and checks the content type.
+  * Wrote 18 new tests and smoke-tested with the real dataset.
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why):
+  * Moved connection handling into a dedicated `db.py` (a `connect()` context manager and `init_db()`) and the schema into `schema/*.sql` files, after review found a connection leak in `init_db`.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  `with connect(db_path) as conn` commits or rolls back the transaction, but does not close
+  the connection. [...] Close it explicitly, such as with contextlib.closing, while
+  retaining the transaction handling.
+
+  On a related note I'd like a dedicated `db.py` module which handles the db connections
+  using a contextmanager which handles connections automatically. The module should also
+  expose an `init_db` function which is called at app startup. The schema should move to a
+  directory containing `.sql` files for table definitions
+  ```

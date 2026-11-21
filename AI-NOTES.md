@@ -13,6 +13,8 @@
 3. **Passing tests hid a packaging bug.** After ticket 01 the tests passed, but `python -m incident_triage` failed with `No module named incident_triage`. The project had been installed while `src/` was still empty, and pytest's `pythonpath = ["src"]` hid it. Only running the real entry point caught it. The fix was `uv sync --reinstall-package incident-triage`.
 4. **A circular import in the first draft.** `errors` and `observability` imported each other. The AI first "fixed" it with an import inside a function, then replaced that with a clean dependency direction: `observability` depends on `errors`.
 5. **It followed a warning towards an unverified package.** A Starlette deprecation warning suggested replacing `httpx` with `httpx2`, and the AI tried to make the swap. The tool's safety check blocked it, because the package couldn't be verified. We kept `httpx`.
+6. **The tag normalisation didn't work.** The AI used `StringConstraints(to_lower=True, pattern=...)` and assumed the input would be lowercased before the pattern check. Pydantic checks the pattern against the raw input, so `"DB"` was rejected instead of becoming `"db"`. A unit test written for that exact case caught it, and the fix normalises with a `BeforeValidator`.
+7. **A connection leak hid behind a common Python misconception.** The AI wrote `with sqlite3.connect(...) as conn:` in `init_db`, assuming it closes the connection. For `sqlite3`, the context manager only commits or rolls back. Each `create_app()` left a connection open. Code review caught it. The fix is a `db.connect()` context manager that always closes, with the transaction handled separately (`with connect(db) as conn, conn:`). A test now checks that the connection is closed afterwards.
 
 ## How changes were validated
 

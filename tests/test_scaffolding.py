@@ -91,6 +91,14 @@ def test_missing_api_key_logs_warning_but_app_starts(settings, capsys):
     )
 
 
+def test_new_database_is_logged_only_on_first_start(settings, capsys):
+    create_app(settings)
+    create_app(settings)
+
+    events = [json.loads(line)["event"] for line in capsys.readouterr().out.splitlines() if line]
+    assert events.count("database_initialized") == 1
+
+
 def test_blank_api_key_counts_as_unset():
     assert Settings(LLM_API_KEY="  ", _env_file=None).LLM_API_KEY is None
 

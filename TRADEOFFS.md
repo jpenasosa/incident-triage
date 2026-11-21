@@ -8,10 +8,15 @@ _This is a running log, updated with each ticket and finalised in ticket 08._
   - config from env vars, with a clear startup error for invalid values; `LLM_API_KEY` is optional
   - JSON logs with a correlation ID on every request log line
   - one consistent error shape
+- Ticket 02, ingest:
+  - a deterministic generator producing 300 Incidents
+  - `POST /ingest` takes NDJSON and is atomic and idempotent, matching records on `id` and using a content hash for updated versus skipped
+  - SQLite with FTS5, kept in sync on update
 
 ## Not done
 
-_(filled in as tickets land)_
+- **Ingest by multipart file upload:** the body is raw NDJSON instead. It's simpler, and curl's `--data-binary @file` covers the use case.
+- **Deleting Incidents through ingest:** Incidents missing from a later batch are kept, not removed.
 
 ## Deliberate interpretations of the brief
 
@@ -26,6 +31,10 @@ _(filled in as tickets land)_
 
 - Uvicorn's own startup and shutdown lines are plain text with no correlation ID. Every *request* log line has one.
 - The OpenAI-compatible layer for Anthropic isn't production-grade, according to Anthropic (ADR 0002).
+- **The synthetic text repeats.** There are 24 failure templates, and only numbers and weekdays vary. That's realistic enough for search and assist demos, but many Incidents look alike.
+- **The hash covers the whole record.** A change to any field, including `created_at`, counts as `updated`. There's no notion of which fields matter.
+- **The schema is applied only when the database file is new.** Adding a schema file later has no effect on an existing database: delete `data/incidents.db` and ingest again. If the first initialisation fails part-way, the file is left behind and later starts skip it, so delete the file in that case too.
+- **Ingest runs in one transaction per request.** At 1,000 lines that's fast, about 30 ms for 300 lines. Much larger batches would need chunking.
 
 ## With 2 more hours
 
