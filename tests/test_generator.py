@@ -3,7 +3,7 @@ import re
 from generate_incidents import generate
 
 INTERNAL_IDENTIFIER = re.compile(
-    r"INC-\d+|\b[\w-]+\.(?:internal|local|corp|com|net)\b|\b\d{1,3}(?:\.\d{1,3}){3}\b|@"
+    r"\b[\w-]+\.(?:internal|local|corp|com|net)\b|\b\d{1,3}(?:\.\d{1,3}){3}\b|@"
 )
 
 

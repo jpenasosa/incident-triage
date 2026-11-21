@@ -12,5 +12,5 @@ The engineer's question and any uncited Candidates are excluded.
 ## Consequences
 
 - **Business rule:** `title`, `description` and `resolution_summary` are customer-visible, so they must be kept free of Internal Identifiers. The guarantee holds only while the data obeys this rule. Any future internal-only field must stay off the allowlist.
-- As a backstop, the draft output is rejected if it contains a Candidate ID or matches a hostname, IP or email pattern. When it is rejected, a canned safe draft is returned instead.
+- As a backstop, the draft output is rejected if it matches a hostname, IP or email pattern, and a canned safe draft is returned instead. Incident ids are plain integers, so they can't be told apart from ordinary numbers in text. The guarantee that ids never reach the draft comes from the allowlist, not from this check.
 - Assist makes two LLM calls per request, which costs extra latency and tokens.
