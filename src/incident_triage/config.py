@@ -14,11 +14,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", case_sensitive=True)
 
-    LLM_PROVIDER: Literal["anthropic", "openai"] = "anthropic"
     # Optional so every other endpoint runs without it; /assist fails fast when unset.
     LLM_API_KEY: SecretStr | None = None
-    LLM_MODEL: str = "claude-sonnet-5-5"
-    LLM_BASE_URL: str | None = None
+    LLM_MODEL: str = "gpt-6-luna"  # an OpenAI model id
+    LLM_BASE_URL: str | None = None  # optional: proxy or Azure OpenAI; default api.openai.com
     LLM_TIMEOUT_SECONDS: float = Field(default=20.0, gt=0, le=120)
 
     DB_PATH: Path = Path("data/incidents.db")

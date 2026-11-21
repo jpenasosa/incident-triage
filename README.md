@@ -14,10 +14,9 @@ All configuration is through environment variables. A `.env` file in the repo ro
 
 | Variable | Default | Notes |
 | --- | --- | --- |
-| `LLM_API_KEY` | none | Only `/assist` needs it. Without it, a warning is logged at startup and `/assist` returns 503. |
-| `LLM_PROVIDER` | `anthropic` | `anthropic` or `openai` |
-| `LLM_MODEL` | `claude-sonnet-5-5` | |
-| `LLM_BASE_URL` | per provider | Overrides the provider's URL, for any OpenAI-compatible endpoint |
+| `LLM_API_KEY` | none | OpenAI API key. Only `/assist` needs it. Without it, a warning is logged at startup and `/assist` returns 503. |
+| `LLM_MODEL` | `gpt-6-luna` | OpenAI model id |
+| `LLM_BASE_URL` | `api.openai.com` | Optional: a proxy or Azure OpenAI endpoint |
 | `LLM_TIMEOUT_SECONDS` | `20` | |
 | `DB_PATH` | `data/incidents.db` | SQLite file. Delete it after schema changes (see [Database and schema changes](#database-and-schema-changes)) |
 | `PORT` | `8000` | |
