@@ -1,7 +1,7 @@
 """Persistence for Incidents: the repository protocol and its SQLite implementation.
 
 All queries live here (the schema is in `schema/*.sql`). `incidents` holds the records;
-`incidents_fts` (FTS5) indexes the searchable text and shares the same rowid.
+`incidents_fts` (FTS5) indexes the searchable text, keyed by rowid = Incident id.
 """
 
 import hashlib
@@ -15,6 +15,8 @@ from incident_triage.models import Incident, IngestResult
 
 class IncidentRepository(Protocol):
     def upsert_many(self, incidents: Sequence[Incident]) -> IngestResult: ...
+
+    def get(self, incident_id: int) -> Incident | None: ...
 
 
 def content_hash(incident: Incident) -> str:
@@ -33,7 +35,7 @@ class SqliteIncidentRepository:
             for incident in incidents:
                 new_hash = content_hash(incident)
                 row = self._conn.execute(
-                    "SELECT rowid, content_hash FROM incidents WHERE id = ?", (incident.id,)
+                    "SELECT content_hash FROM incidents WHERE id = ?", (incident.id,)
                 ).fetchone()
                 if row is None:
                     result.ingested += 1
@@ -42,13 +44,21 @@ class SqliteIncidentRepository:
                     continue
                 else:
                     result.updated += 1
-                    self._conn.execute("DELETE FROM incidents_fts WHERE rowid = ?", (row["rowid"],))
+                    self._conn.execute("DELETE FROM incidents_fts WHERE rowid = ?", (incident.id,))
                 self._write(incident, new_hash)
         return result
 
+    def get(self, incident_id: int) -> Incident | None:
+        row = self._conn.execute(
+            "SELECT id, created_at, environment, service, severity, title, description,"
+            " resolution_summary, tags FROM incidents WHERE id = ?",
+            (incident_id,),
+        ).fetchone()
+        return None if row is None else _to_incident(row)
+
     def _write(self, incident: Incident, new_hash: str) -> None:
         tags_json = json.dumps(incident.tags)
-        rowid = self._conn.execute(
+        self._conn.execute(
             """
             INSERT INTO incidents (id, created_at, environment, service, severity, title,
                                    description, resolution_summary, tags, content_hash)
@@ -59,7 +69,6 @@ class SqliteIncidentRepository:
                 title = excluded.title, description = excluded.description,
                 resolution_summary = excluded.resolution_summary, tags = excluded.tags,
                 content_hash = excluded.content_hash
-            RETURNING rowid
             """,
             (
                 incident.id,
@@ -73,15 +82,19 @@ class SqliteIncidentRepository:
                 tags_json,
                 new_hash,
             ),
-        ).fetchone()["rowid"]
+        )
         self._conn.execute(
             "INSERT INTO incidents_fts (rowid, title, description, resolution_summary, tags)"
             " VALUES (?, ?, ?, ?, ?)",
             (
-                rowid,
+                incident.id,
                 incident.title,
                 incident.description,
                 incident.resolution_summary,
                 " ".join(incident.tags),
             ),
         )
+
+
+def _to_incident(row: sqlite3.Row) -> Incident:
+    return Incident.model_validate({**dict(row), "tags": json.loads(row["tags"])})

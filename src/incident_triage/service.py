@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
-from incident_triage.errors import AppError
+from incident_triage.errors import AppError, NotFoundError
 from incident_triage.models import Incident, IngestResult
 from incident_triage.repository import IncidentRepository
 
@@ -39,11 +39,17 @@ class IncidentService:
         log.info("ingest_completed", **result.model_dump())
         return result
 
+    def get_incident(self, incident_id: int) -> Incident:
+        incident = self._repository.get(incident_id)
+        if incident is None:
+            raise NotFoundError(f"Incident {incident_id} not found")
+        return incident
+
 
 def _parse_ndjson(text: str) -> tuple[list[Incident], list[dict[str, Any]]]:
     incidents: list[Incident] = []
     errors: list[dict[str, Any]] = []
-    first_line_for_id: dict[str, int] = {}
+    first_line_for_id: dict[int, int] = {}
 
     lines = [(n, line) for n, line in enumerate(text.splitlines(), start=1) if line.strip()]
     if not lines:
@@ -75,7 +81,7 @@ def _parse_ndjson(text: str) -> tuple[list[Incident], list[dict[str, Any]]]:
                 {
                     "line": line_no,
                     "field": "id",
-                    "message": f"Duplicate id {incident.id!r} (first seen on line "
+                    "message": f"Duplicate id {incident.id} (first seen on line "
                     f"{first_line_for_id[incident.id]})",
                 }
             )

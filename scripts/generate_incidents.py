@@ -5,7 +5,7 @@
 The same seed with the same pinned `faker` version gives byte-identical output.
 Free text (title, description, resolution_summary) is customer-visible by business
 rule (ADR 0003), so templates contain no Internal Identifiers: no hostnames, request
-IDs, Incident IDs, emails or person names.
+IDs, emails or person names.
 """
 
 import argparse
@@ -287,7 +287,7 @@ def generate(count: int, seed: int) -> list[Incident]:
         )
 
     drafts.sort(key=lambda d: d["created_at"])
-    return [Incident(id=f"INC-{n:05d}", **d) for n, d in enumerate(drafts, start=1)]
+    return [Incident(id=n, **d) for n, d in enumerate(drafts, start=1)]
 
 
 def main() -> None:

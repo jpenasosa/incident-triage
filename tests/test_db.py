@@ -27,7 +27,7 @@ def test_init_db_skips_an_existing_database(tmp_path):
     db = tmp_path / "app.db"
     init_db(db)
     with connect(db) as conn, conn:
-        conn.execute("INSERT INTO incidents VALUES ('A', '', '', '', '', '', '', '', '[]', '')")
+        conn.execute("INSERT INTO incidents VALUES (1, '', '', '', '', '', '', '', '[]', '')")
 
     assert init_db(db) is False
     with connect(db) as conn:

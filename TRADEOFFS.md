@@ -12,6 +12,8 @@ _This is a running log, updated with each ticket and finalised in ticket 08._
   - a deterministic generator producing 300 Incidents
   - `POST /ingest` takes NDJSON and is atomic and idempotent, matching records on `id` and using a content hash for updated versus skipped
   - SQLite with FTS5, kept in sync on update
+- Ticket 03: `GET /incidents/{id}` returns the full record, a 404 in the standard shape for an unknown id, and a 422 for a malformed id
+- **Integer Incident ids:** the id is a caller-supplied positive integer stored as SQLite's `INTEGER PRIMARY KEY`, the rowid itself. That avoids the hidden unique index a `TEXT` key creates, and FTS rows share the id directly. The cost is that ids aren't recognisable in free text the way `INC-42` would be. So the Customer Draft backstop doesn't check for Incident IDs, because ordinary numbers like "42 employees" would trip it. ADR 0003's context isolation already keeps ids out of the draft.
 
 ## Not done
 

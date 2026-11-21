@@ -72,6 +72,18 @@ It's idempotent. Records are matched on `id`, and a hash of their content decide
 
 The batch is atomic. If any line is invalid, nothing is written, and the 422 response lists up to 50 problems as `{line, field, message}`. An `id` repeated within one batch counts as a problem. A wrong `Content-Type` gives 415, and an oversized body gives 413.
 
+## Incident details
+
+`GET /incidents/{id}` returns the full Incident record:
+
+```bash
+curl -s http://localhost:8000/incidents/42
+# {"id":42,"created_at":"2026-02-12T08:27:30Z","environment":"prod","service":"timekeeping",
+#  "severity":"SEV3","title":"Timesheet approval button unresponsive", ... ,"tags":["approvals","ui","regression"]}
+```
+
+Incident ids are positive integers supplied by the ingested data. An unknown id returns 404 `NOT_FOUND`, and an id that isn't a positive 64-bit integer returns 422.
+
 ## Errors
 
 Every error has the same shape:

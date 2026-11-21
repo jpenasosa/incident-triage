@@ -39,7 +39,9 @@ class Severity(StrEnum):
     SEV4 = "SEV4"
 
 
-IncidentId = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_-]{1,64}$")]
+# Caller-supplied, so ingest can match on it. Stored as SQLite's INTEGER PRIMARY KEY.
+MAX_INCIDENT_ID = 2**63 - 1  # SQLite's largest integer
+IncidentId = Annotated[int, Field(strict=True, gt=0, le=MAX_INCIDENT_ID)]
 
 
 def _normalise_tag(value: object) -> object:

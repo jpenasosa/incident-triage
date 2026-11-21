@@ -6,7 +6,7 @@ NDJSON = {"Content-Type": "application/x-ndjson"}
 
 
 def test_ingest_is_idempotent_over_http(client):
-    body = ndjson(incident_dict(id="A"), incident_dict(id="B"))
+    body = ndjson(incident_dict(id=1), incident_dict(id=2))
 
     first = client.post("/ingest", content=body, headers=NDJSON)
     second = client.post("/ingest", content=body, headers=NDJSON)

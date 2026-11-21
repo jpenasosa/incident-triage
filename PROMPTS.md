@@ -112,3 +112,28 @@ These are the prompts used with AI tools during the build, recorded as they were
   expose an `init_db` function which is called at app startup. The schema should move to a
   directory containing `.sql` files for table definitions
   ```
+
+---
+
+**Prompt #5**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Implement ticket 03: `GET /incidents/{id}`.
+* Prompt (copy/paste):
+
+  ```
+  merged, let's move on to ticket 03
+  ```
+* Result summary: Added `get` to the repository protocol and the SQLite implementation, `IncidentService.get_incident` (which raises `NotFoundError`), and a thin route. Wrote tests for the service (fake repository) and the API (round trip, 404 shape and 422).
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why):
+  * Switched Incident ids from `INC-00001` strings to strict positive integers stored as `INTEGER PRIMARY KEY`. The prefix added nothing, and a `TEXT` key costs a hidden unique index.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  I have 2 comments related to the incident id:
+  1. The `ID_PATTERN` is more generic than what is actually generated in practice, namely `INC-[0-9]+`.
+  2. For such a simple service, the "INC-" prefix is taking up extra space with no benefit. It's probably
+  far more efficient to use sequential integers. At scale that prefix can add up. Why did you choose that
+  pattern over a simple integer primary key?
+  ```

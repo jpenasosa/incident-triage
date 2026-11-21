@@ -1,6 +1,7 @@
--- Incident records. `tags` is a JSON array, used for exact tag filtering.
+-- Incident records. `id` is the rowid (no separate index). `tags` is a JSON array,
+-- used for exact tag filtering.
 CREATE TABLE IF NOT EXISTS incidents (
-    id TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,
     environment TEXT NOT NULL,
     service TEXT NOT NULL,

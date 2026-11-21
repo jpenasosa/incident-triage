@@ -6,7 +6,7 @@ from incident_triage.models import Incident
 
 def incident_dict(**overrides: Any) -> dict[str, Any]:
     base = {
-        "id": "INC-00001",
+        "id": 1,
         "created_at": "2026-03-01T10:00:00Z",
         "environment": "prod",
         "service": "payroll",
