@@ -4,16 +4,28 @@ from unittest.mock import MagicMock
 import httpx2
 import openai
 import pytest
+from openai import pydantic_responses_function_tool
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from incident_triage.config import Settings
-from incident_triage.llm import MAX_OUTPUT_TOKENS, REASON_MESSAGES, AssistUnavailable, OpenAIClient
+from incident_triage.llm import (
+    MAX_OUTPUT_TOKENS,
+    REASON_MESSAGES,
+    AssistUnavailable,
+    OpenAIClient,
+    Tool,
+)
 
 
 class Answer(BaseModel):
     model_config = ConfigDict(extra="forbid")
     text: str
     ids: list[int]
+
+
+class LookupArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    q: str
 
 
 REQUEST = httpx2.Request("POST", "https://api.openai.com/v1/responses")
@@ -26,24 +38,66 @@ def settings(**overrides) -> Settings:
 def parsed_response(
     parsed: BaseModel | None, status: str = "completed", reason: str | None = None
 ) -> MagicMock:
-    response = MagicMock(status=status, output_parsed=parsed)
+    response = MagicMock(status=status, output_parsed=parsed, output=[])
     response.incomplete_details = MagicMock(reason=reason) if reason else None
     return response
 
 
-def stub_sdk(result) -> MagicMock:
-    """Stands in for openai.OpenAI: `responses.parse` returns or raises `result`."""
+def item(type_: str, **fields) -> MagicMock:
+    """An SDK output item whose to_dict() is `fields` plus the SDK's parsed extras."""
+    mock = MagicMock(type=type_, **{k: v for k, v in fields.items() if k != "name"})
+    mock.name = fields.get("name")  # `name` is special to MagicMock's constructor
+    extras = (
+        {"parsed_arguments": fields.get("parsed_arguments")} if type_ == "function_call" else {}
+    )
+    plain = {k: v for k, v in fields.items() if k != "parsed_arguments"}
+    mock.to_dict.return_value = {"type": type_, **plain, **extras}
+    return mock
+
+
+def tool_call_response(q: str, call_id: str = "call_1") -> MagicMock:
+    """A turn where the model reasons, then calls `lookup`."""
+    response = parsed_response(None)
+    response.output = [
+        item("reasoning", id="rs_1", encrypted_content="enc", summary=[]),
+        item(
+            "function_call",
+            id="fc_1",
+            call_id=call_id,
+            name="lookup",
+            arguments=json.dumps({"q": q}),
+            parsed_arguments=LookupArgs(q=q),
+        ),
+    ]
+    return response
+
+
+def stub_sdk(*results) -> MagicMock:
+    """Stands in for openai.OpenAI: each `responses.parse` call returns or raises the next
+    of `results`."""
     sdk = MagicMock()
-    if isinstance(result, Exception):
-        sdk.responses.parse.side_effect = result
-    else:
-        sdk.responses.parse.return_value = result
+    sdk.responses.parse.side_effect = list(results)
     return sdk
 
 
-def call(sdk, **settings_overrides):
+def lookup_tool(seen: list | None = None) -> Tool:
+    def run(args: LookupArgs) -> str:
+        if seen is not None:
+            seen.append(args)
+        return f"results for {args.q}"
+
+    return Tool(name="lookup", description="Look things up.", args=LookupArgs, run=run)
+
+
+def call(sdk, *, tools=None, max_tool_calls=3, **settings_overrides):
     client = OpenAIClient(settings(**settings_overrides), sdk=sdk)
-    return client.complete(system="sys", user="usr", output=Answer)
+    return client.run_tools(
+        system="sys",
+        user="usr",
+        tools=tools or [lookup_tool()],
+        output=Answer,
+        max_tool_calls=max_tool_calls,
+    )
 
 
 def status_error(cls, status: int):
@@ -87,7 +141,7 @@ def test_base_url_override():
 # --- request shape ----------------------------------------------------------------------
 
 
-def test_uses_responses_parse_with_the_output_model():
+def test_first_turn_requires_a_tool_call_and_sends_strict_tools():
     sdk = stub_sdk(parsed_response(Answer(text="hi", ids=[1])))
 
     result = call(sdk, LLM_MODEL="gpt-6-luna")
@@ -96,11 +150,81 @@ def test_uses_responses_parse_with_the_output_model():
     sdk.responses.parse.assert_called_once_with(
         model="gpt-6-luna",
         instructions="sys",
-        input="usr",
+        input=[{"role": "user", "content": "usr"}],
         text_format=Answer,
+        tools=[
+            pydantic_responses_function_tool(
+                LookupArgs, name="lookup", description="Look things up."
+            )
+        ],
+        tool_choice="required",
+        parallel_tool_calls=False,
         max_output_tokens=MAX_OUTPUT_TOKENS,
         store=False,
     )
+    assert sdk.responses.parse.call_args.kwargs["tools"][0]["strict"] is True
+
+
+# --- tool loop --------------------------------------------------------------------------
+
+
+def test_tool_calls_run_and_the_transcript_is_replayed_without_parsed_extras():
+    seen = []
+    sdk = stub_sdk(tool_call_response("sso"), parsed_response(Answer(text="ok", ids=[7])))
+
+    result = call(sdk, tools=[lookup_tool(seen)])
+
+    assert result == Answer(text="ok", ids=[7])
+    assert seen == [LookupArgs(q="sso")]
+    second = sdk.responses.parse.call_args_list[1].kwargs
+    assert second["tool_choice"] == "auto"
+    assert second["input"] == [
+        {"role": "user", "content": "usr"},
+        {"type": "reasoning", "id": "rs_1", "encrypted_content": "enc", "summary": []},
+        {
+            "type": "function_call",
+            "id": "fc_1",
+            "call_id": "call_1",
+            "name": "lookup",
+            "arguments": '{"q": "sso"}',
+        },
+        {"type": "function_call_output", "call_id": "call_1", "output": "results for sso"},
+    ]
+
+
+def test_the_turn_after_the_cap_must_answer():
+    sdk = stub_sdk(
+        tool_call_response("a", "c1"),
+        tool_call_response("b", "c2"),
+        parsed_response(Answer(text="ok", ids=[])),
+    )
+
+    call(sdk, max_tool_calls=2)
+
+    choices = [c.kwargs["tool_choice"] for c in sdk.responses.parse.call_args_list]
+    assert choices == ["required", "auto", "none"]
+
+
+def test_a_tool_call_past_the_cap_is_an_upstream_error():
+    seen = []
+    sdk = stub_sdk(tool_call_response("a", "c1"), tool_call_response("b", "c2"))
+
+    with pytest.raises(AssistUnavailable) as exc:
+        call(sdk, tools=[lookup_tool(seen)], max_tool_calls=1)
+
+    assert exc.value.reason == "llm_upstream_error"
+    assert "kept calling tools" in exc.value.cause
+    assert [a.q for a in seen] == ["a"]  # the call past the cap never ran
+
+
+def test_an_unknown_tool_is_an_upstream_error():
+    response = tool_call_response("a")
+    response.output[1].name = "rm_rf"
+
+    with pytest.raises(AssistUnavailable) as exc:
+        call(stub_sdk(response))
+
+    assert "unknown tool 'rm_rf'" in exc.value.cause
 
 
 # --- failures: a fixed, actionable message per reason; the raw cause only in logs -------
@@ -110,7 +234,9 @@ def test_missing_key_fails_fast_without_a_client(capsys):
     client = OpenAIClient(Settings(_env_file=None))  # no LLM_API_KEY
 
     with pytest.raises(AssistUnavailable) as exc:
-        client.complete(system="s", user="u", output=Answer)
+        client.run_tools(
+            system="s", user="u", tools=[lookup_tool()], output=Answer, max_tool_calls=1
+        )
 
     assert client._sdk is None
     assert exc.value.reason == "llm_key_missing"

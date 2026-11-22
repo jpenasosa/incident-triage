@@ -10,15 +10,21 @@ from pydantic import ValidationError
 from incident_triage.assist import (
     ANALYSIS_SYSTEM_PROMPT,
     CUSTOMER_DRAFTS,
+    FILTER_FIELDS,
     INSUFFICIENT_NEXT_STEPS,
+    MAX_TOOL_CALLS,
+    SEARCH_TOOL_DESCRIPTION,
+    SEARCH_TOOL_NAME,
+    SearchIncidentsArgs,
     TriageAnalysis,
     apply_guardrail,
     build_analysis_input,
     build_next_steps,
     dedupe_by_title,
+    merge_filters,
 )
 from incident_triage.errors import AppError, NotFoundError
-from incident_triage.llm import LLMClient
+from incident_triage.llm import LLMClient, Tool
 from incident_triage.models import (
     AssistRequest,
     AssistResponse,
@@ -28,7 +34,6 @@ from incident_triage.models import (
     IngestResult,
     SearchPage,
     SearchQuery,
-    SearchResult,
 )
 from incident_triage.repository import IncidentRepository
 
@@ -75,80 +80,46 @@ class IncidentService:
         )
         return page
 
-    def find_candidates(self, request: AssistRequest) -> list[SearchResult]:
-        """Retrieve assist Candidates through the same search path as GET /search."""
-        self._llm.ensure_available()  # fail fast: no search if assist can't finish
-        query = SearchQuery(
-            q=request.question,
-            **request.model_dump(include={"environment", "service", "severity", "tags"}),
-            limit=CANDIDATE_LIMIT,
-        )
-        log.info(
-            "assist_step",
-            step="tool:search",
-            phase="input",
-            q=query.q,
-            filters=query.model_dump(include={"environment", "service", "severity", "tags"}),
-            limit=query.limit,
-        )
-        page = self.search(query)
-        candidates = page.results
-        log.info(
-            "assist_step",
-            step="tool:search",
-            phase="output",
-            hits=page.total,
-            top_ids=[c.id for c in candidates],
-        )
-        log.debug(
-            "assist_candidates",
-            candidates=[
-                {"id": c.id, "score": c.score, "service": c.service, "title": c.title}
-                for c in candidates
-            ],
-        )
-        return candidates
-
     def assist(self, request: AssistRequest) -> AssistResponse:
-        candidates = self.find_candidates(request)
-        if not candidates:  # nothing to ground an answer in: don't call the LLM
-            return self._insufficient("no_candidates")
-
-        shown = dedupe_by_title(candidates)
-        records = [r for r in (self._repository.get(c.id) for c in shown) if r is not None]
-        log.info(
-            "assist_step",
-            step="llm:analyze",
-            phase="input",
-            candidate_ids=[r.id for r in records],
-            collapsed_duplicates=len(candidates) - len(shown),
+        self._llm.ensure_available()  # fail fast: no search if assist can't finish
+        shown: dict[int, Incident] = {}  # every record any search returned to the model
+        search_tool = Tool(
+            name=SEARCH_TOOL_NAME,
+            description=SEARCH_TOOL_DESCRIPTION,
+            args=SearchIncidentsArgs,
+            run=lambda args: self._search_tool(args, request, shown),
         )
-        analysis = self._llm.complete(
+        log.info("assist_step", step="llm:analyze", phase="input", max_tool_calls=MAX_TOOL_CALLS)
+        analysis = self._llm.run_tools(
             system=ANALYSIS_SYSTEM_PROMPT,
-            user=build_analysis_input(request.question, records),
+            user=build_analysis_input(request),
+            tools=[search_tool],
             output=TriageAnalysis,
+            max_tool_calls=MAX_TOOL_CALLS,
         )
-        by_id = {r.id: r for r in records}
-        guarded = apply_guardrail(analysis, shown=by_id)
+        guarded = apply_guardrail(analysis, shown=shown)
         log.info(
             "assist_step",
             step="guardrail",
+            shown_ids=sorted(shown),
             selected_ids=[c.id for c in guarded.cited],
             dropped=guarded.dropped,
             insufficient=guarded.insufficient,
         )
         if guarded.insufficient:
+            if not shown:
+                return self._insufficient("no_candidates")
             flagged = analysis.insufficient_context
             return self._insufficient("model_said_insufficient" if flagged else "none_verified")
 
-        cited_records = [by_id[c.id] for c in guarded.cited]
+        cited_records = [shown[c.id] for c in guarded.cited]
         reply = analysis.customer_reply
         log.info("assist_step", step="draft", customer_reply=reply, source="template")
         # Everything below comes from stored records, verified quotes or fixed templates.
         return AssistResponse(
             relevant_incidents=[
                 CitedIncident(
-                    id=c.id, title=by_id[c.id].title, reason=f"Record states: “{c.evidence}”"
+                    id=c.id, title=shown[c.id].title, reason=f"Record states: “{c.evidence}”"
                 )
                 for c in guarded.cited
             ],
@@ -157,8 +128,68 @@ class IncidentService:
             insufficient_context=False,
         )
 
+    def _search_tool(
+        self, args: SearchIncidentsArgs, request: AssistRequest, shown: dict[int, Incident]
+    ) -> str:
+        """search_incidents: the same search path as GET /search, with the engineer's
+        filters enforced. Returns the full records of the deduplicated Candidates and adds
+        them to `shown`. Invalid arguments go back to the model as an error, not a 4xx."""
+        filters, overridden = merge_filters(args, request)
+        try:
+            query = SearchQuery(q=args.q, **filters, limit=CANDIDATE_LIMIT)
+        except ValidationError:
+            query = None
+        # Log the normalized query that actually runs; the raw arguments only if invalid.
+        log.info(
+            "assist_step",
+            step="tool:search",
+            phase="input",
+            q=query.q if query else args.q,
+            filters=query.model_dump(include=set(FILTER_FIELDS)) if query else filters,
+            overridden=overridden,
+            limit=CANDIDATE_LIMIT,
+            valid=query is not None,
+        )
+        error = "invalid search arguments" if query is None else None
+        if query is not None:
+            try:
+                page = self.search(query)
+            except AppError as exc:  # e.g. no q and no filters
+                error = exc.message
+        if error:
+            log.info("assist_step", step="tool:search", phase="output", error=error)
+            return json.dumps({"error": error})
+
+        candidates = dedupe_by_title(page.results)
+        records = [r for r in (self._repository.get(c.id) for c in candidates) if r is not None]
+        shown.update((r.id, r) for r in records)
+        log.info(
+            "assist_step",
+            step="tool:search",
+            phase="output",
+            hits=page.total,
+            top_ids=[c.id for c in page.results],
+            collapsed_duplicates=len(page.results) - len(candidates),
+        )
+        log.debug(
+            "assist_candidates",
+            candidates=[
+                {"id": c.id, "score": c.score, "service": c.service, "title": c.title}
+                for c in page.results
+            ],
+        )
+        return json.dumps(
+            {"total": page.total, "incidents": [r.model_dump(mode="json") for r in records]}
+        )
+
     def _insufficient(self, reason: str) -> AssistResponse:
         log.info("assist_insufficient", reason=reason)
+        log.info(
+            "assist_step",
+            step="draft",
+            customer_reply=CustomerReply.REQUEST_DETAILS,
+            source="template",
+        )
         return AssistResponse(
             relevant_incidents=[],
             next_steps=INSUFFICIENT_NEXT_STEPS,

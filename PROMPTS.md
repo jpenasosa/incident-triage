@@ -329,3 +329,41 @@ These are the prompts used with AI tools during the build, recorded as they were
   The result: a neutral `acknowledged` default, and `investigating` now gets the same "only if the question says so" rule as the fix replies. An 8-question live run gave the expected reply for every question.
 * What you kept: the templates (five after review), the status-claim rule, and removing the backstop and the draft call.
 * What you changed manually (and why): _(to fill in after review)_
+
+---
+
+**Prompt #11**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Implement ticket 09, where the model retrieves Candidates through function calling instead of a fixed search.
+* Prompt (copy/paste):
+
+  ```
+  Ticket 10 has been merged in, let's start working on ticket 09
+  ```
+
+  (It was ticket 11's PR that had just merged. Ticket 09 depends on it.)
+* Result summary:
+  * The AI read the installed `openai` SDK before writing the loop. It found `pydantic_responses_function_tool`, the `parsed_arguments` on function calls, and how the SDK's own runner replays output items. With `store=False`, the reasoning items with their `encrypted_content`, the message phases and the function calls all have to be resent each turn.
+  * `LLMClient.complete()` became `run_tools()`. The first turn must call the tool, later turns may, and the turn after 3 calls must answer. The `search_incidents` handler calls `IncidentService.search()`, applies the engineer's filters on top of the model's, and feeds invalid arguments back to the model as an error.
+  * A 10-question live run worked end to end, with 2–4 LLM calls and 3.7–9.6s per assist. It also showed that the insufficient paths didn't log a `draft` step, which the README's QA loop relies on, so that was fixed.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  is ticket 09 completed?
+  ```
+
+  The AI said no: the docs, the regression check and the commit were still outstanding.
+
+  ```
+  - [P2] Log the normalized filters that the search actually uses — service.py. The tool:search
+    input is logged before SearchQuery normalizes tags. For example, [" Login ", "login"] is logged
+    as sent, while the search uses ["login"]. [...] Construct the query first and log its
+    normalized q and filters.
+  ```
+
+  The result: the query is built first and its normalized `q` and filters are logged. The raw arguments are logged only when they're invalid, marked `valid: false`. The new test showed one detail the finding got wrong: `SearchQuery` normalizes tags but doesn't remove duplicates, so the search runs with `["login", "login"]`. That's harmless, because each tag is an `EXISTS` check, and the log now shows exactly that.
+
+  The AI pointed out the same problem in `overridden`, which compared raw values, so `[" SSO "]` against `["sso"]` counted as an override. Overrides are now compared the way the search sees them: tags as a normalized set, so case, whitespace, order and duplicates don't matter.
+* What you kept: the explicit loop over the SDK's `max_tool_calls`, enforcing the engineer's filters, and the README QA table extended to retrieval cases.
+* What you changed manually (and why): _(to fill in after review)_

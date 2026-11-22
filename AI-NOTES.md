@@ -32,6 +32,8 @@
 
 14. **The first template default still claimed a status.** The AI made `investigating` the fallback reply, so "We're investigating the issue" went out even when nothing said anyone was. It was the same mistake as the fix replies, in a milder form, and the AI had guarded only those. PR review caught it. The fix adds a neutral `acknowledged` default and applies the "only if the question says so" rule to every reply that states a status.
 
+15. **A regression check that proved nothing.** To show a new test fails without its fix, the AI ran `git stash`, the tests, then `git stash pop`. The stash set aside the whole branch, tests included, so "17 passed" was `main`'s own tests running against `main`'s code. The AI caught this and said so, confirmed nothing was lost, and redid the check by removing only the one log line: the test then failed as it should.
+
 ## How changes were validated
 
 - Unit tests for each ticket (`uv run pytest`), plus `ruff`.
