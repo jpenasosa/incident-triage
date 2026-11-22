@@ -103,6 +103,17 @@ def test_engineer_filters_override_the_models_and_the_model_can_narrow(capsys):
     assert step["filters"]["service"] == "auth"
 
 
+def test_filters_equal_after_normalization_are_not_reported_as_overridden(capsys):
+    llm = FakeLLMClient(
+        search("sso", environment="prod", tags=[" SSO ", "Login"]), analysis((1, SSO_EVIDENCE))
+    )
+
+    run(llm, environment="prod", tags=["login", "sso"])  # same filters, other order and case
+
+    step = next(s for s in steps(capsys) if s["step"] == "tool:search")
+    assert step["overridden"] == []
+
+
 def test_citations_are_checked_against_every_search_the_model_ran(capsys):
     by_q = {
         "sso": [make_result(1, title="SSO login failing")],
@@ -121,6 +132,17 @@ def test_citations_are_checked_against_every_search_the_model_ran(capsys):
     guardrail = next(s for s in steps(capsys) if s["step"] == "guardrail")
     assert guardrail["shown_ids"] == [1, 3]
     assert guardrail["dropped"] == [{"id": 2, "why": "not_shown"}]  # no search returned it
+
+
+def test_tool_search_logs_the_normalized_query_that_actually_runs(capsys):
+    repository = repo()
+    llm = FakeLLMClient(search("sso", tags=[" Login ", "login"]), analysis((1, SSO_EVIDENCE)))
+
+    run(llm, repository)
+
+    executed = repository.searched
+    step = next(s for s in steps(capsys) if s["step"] == "tool:search")
+    assert step["filters"]["tags"] == executed.tags == ["login", "login"]  # normalized, as run
 
 
 @pytest.mark.parametrize(

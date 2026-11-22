@@ -141,12 +141,24 @@ def merge_filters(
 ) -> tuple[dict, list[str]]:
     """The model's filters with the engineer's on top: a filter set in the request always
     wins, so the model can narrow a search but never widen it. Also returns the names of
-    the filters whose model value was overridden."""
+    the filters whose model value was overridden (compared as the search would see them)."""
     model = model_args.model_dump(include=set(FILTER_FIELDS))
     user = request.model_dump(include=set(FILTER_FIELDS))
     merged = {k: user[k] or model[k] for k in FILTER_FIELDS}
-    overridden = [k for k in FILTER_FIELDS if user[k] and model[k] and model[k] != user[k]]
+    overridden = [
+        k
+        for k in FILTER_FIELDS
+        if user[k] and model[k] and _comparable(k, model[k]) != _comparable(k, user[k])
+    ]
     return merged, overridden
+
+
+def _comparable(field: str, value: object) -> object:
+    """Tags match as a set, normalized like models.Tag (every tag must match, so order and
+    duplicates don't matter); the enum filters are already canonical."""
+    if field == "tags":
+        return {t.strip().lower() for t in value}
+    return value
 
 
 def _normalise(text: str) -> str:

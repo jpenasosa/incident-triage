@@ -354,5 +354,16 @@ These are the prompts used with AI tools during the build, recorded as they were
   ```
 
   The AI said no: the docs, the regression check and the commit were still outstanding.
+
+  ```
+  - [P2] Log the normalized filters that the search actually uses — service.py. The tool:search
+    input is logged before SearchQuery normalizes tags. For example, [" Login ", "login"] is logged
+    as sent, while the search uses ["login"]. [...] Construct the query first and log its
+    normalized q and filters.
+  ```
+
+  The result: the query is built first and its normalized `q` and filters are logged. The raw arguments are logged only when they're invalid, marked `valid: false`. The new test showed one detail the finding got wrong: `SearchQuery` normalizes tags but doesn't remove duplicates, so the search runs with `["login", "login"]`. That's harmless, because each tag is an `EXISTS` check, and the log now shows exactly that.
+
+  The AI pointed out the same problem in `overridden`, which compared raw values, so `[" SSO "]` against `["sso"]` counted as an override. Overrides are now compared the way the search sees them: tags as a normalized set, so case, whitespace, order and duplicates don't matter.
 * What you kept: the explicit loop over the SDK's `max_tool_calls`, enforcing the engineer's filters, and the README QA table extended to retrieval cases.
 * What you changed manually (and why): _(to fill in after review)_

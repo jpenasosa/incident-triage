@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from incident_triage.assist import (
     ANALYSIS_SYSTEM_PROMPT,
     CUSTOMER_DRAFTS,
+    FILTER_FIELDS,
     INSUFFICIENT_NEXT_STEPS,
     MAX_TOOL_CALLS,
     SEARCH_TOOL_DESCRIPTION,
@@ -134,22 +135,30 @@ class IncidentService:
         filters enforced. Returns the full records of the deduplicated Candidates and adds
         them to `shown`. Invalid arguments go back to the model as an error, not a 4xx."""
         filters, overridden = merge_filters(args, request)
+        try:
+            query = SearchQuery(q=args.q, **filters, limit=CANDIDATE_LIMIT)
+        except ValidationError:
+            query = None
+        # Log the normalized query that actually runs; the raw arguments only if invalid.
         log.info(
             "assist_step",
             step="tool:search",
             phase="input",
-            q=args.q,
-            filters=filters,
+            q=query.q if query else args.q,
+            filters=query.model_dump(include=set(FILTER_FIELDS)) if query else filters,
             overridden=overridden,
             limit=CANDIDATE_LIMIT,
+            valid=query is not None,
         )
-        try:
-            query = SearchQuery(q=args.q, **filters, limit=CANDIDATE_LIMIT)
-            page = self.search(query)
-        except (ValidationError, AppError) as exc:
-            message = exc.message if isinstance(exc, AppError) else "invalid search arguments"
-            log.info("assist_step", step="tool:search", phase="output", error=message)
-            return json.dumps({"error": message})
+        error = "invalid search arguments" if query is None else None
+        if query is not None:
+            try:
+                page = self.search(query)
+            except AppError as exc:  # e.g. no q and no filters
+                error = exc.message
+        if error:
+            log.info("assist_step", step="tool:search", phase="output", error=error)
+            return json.dumps({"error": error})
 
         candidates = dedupe_by_title(page.results)
         records = [r for r in (self._repository.get(c.id) for c in candidates) if r is not None]
