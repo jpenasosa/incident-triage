@@ -49,9 +49,10 @@ Rules:
 - customer_reply picks the prepared reply the engineer can send the customer:
   - fix_delivered: only if the question says a fix has been shipped or deployed.
   - fix_in_progress: only if the question says the cause is known and a fix is underway.
+  - investigating: only if the question says someone is investigating or looking into it.
   - request_details: the question lacks what is needed to act (affected area, error, timing).
-  - investigating: anything else.
-  A past incident's resolution is not evidence that the current problem is fixed.
+  - acknowledged: anything else.
+  A past incident's resolution is not evidence about the current problem's status.
 """
 
 
@@ -154,6 +155,10 @@ CUSTOMER_DRAFTS: dict[CustomerReply, str] = {
         "Thank you for reaching out. To help us investigate, could you tell us which part of "
         "the product is affected, when the problem started, the exact error message you see, "
         "and roughly how many users are affected?"
+    ),
+    CustomerReply.ACKNOWLEDGED: (
+        "Thank you for reporting this. We've received your report and will follow up with an "
+        "update as soon as we have more information."
     ),
     CustomerReply.INVESTIGATING: (
         "Thank you for reporting this. We're investigating the issue and will get back to you "

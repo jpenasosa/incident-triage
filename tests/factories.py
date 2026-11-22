@@ -45,7 +45,7 @@ def make_result(id: int, **overrides: Any) -> SearchResult:
 def make_analysis(
     *citations: tuple[int, str],
     insufficient: bool = False,
-    reply: CustomerReply = CustomerReply.INVESTIGATING,
+    reply: CustomerReply = CustomerReply.ACKNOWLEDGED,
 ) -> TriageAnalysis:
     """`citations` are (incident id, evidence quote) pairs."""
     return TriageAnalysis(

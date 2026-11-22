@@ -48,6 +48,7 @@ class CustomerReply(StrEnum):
     """Which prepared Customer Draft fits the engineer's question (GLOSSARY.md)."""
 
     REQUEST_DETAILS = "request_details"
+    ACKNOWLEDGED = "acknowledged"
     INVESTIGATING = "investigating"
     FIX_IN_PROGRESS = "fix_in_progress"
     FIX_DELIVERED = "fix_delivered"

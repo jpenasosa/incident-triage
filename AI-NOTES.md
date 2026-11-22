@@ -30,6 +30,8 @@
 
 13. **The allowlist addressed leaks, not invention.** ADR 0003 kept Internal Identifiers away from the draft call, but the model still wrote the draft, so it could claim details the records don't support. The AI recorded this as an "open product decision" instead of fixing it. An external review against the brief flagged it as a hard-requirement gap. The fix replaces the draft call with prepared templates chosen by a model-picked Customer Reply (ADR 0006).
 
+14. **The first template default still claimed a status.** The AI made `investigating` the fallback reply, so "We're investigating the issue" went out even when nothing said anyone was. It was the same mistake as the fix replies, in a milder form, and the AI had guarded only those. PR review caught it. The fix adds a neutral `acknowledged` default and applies the "only if the question says so" rule to every reply that states a status.
+
 ## How changes were validated
 
 - Unit tests for each ticket (`uv run pytest`), plus `ruff`.

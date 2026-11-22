@@ -283,7 +283,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   ```
 * What you kept: the requirement-by-requirement gap list and the ticket split. Ticket 10 (actionable errors) is implemented as proposed.
 * What you changed manually (and why):
-  * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The four coarse templates are accepted as prototype scope.
+  * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The coarse templates are accepted as prototype scope.
   * Kept 1–5 citations instead of padding to 3.
   * Skipped ticket 07 for time.
 
@@ -317,5 +317,15 @@ These are the prompts used with AI tools during the build, recorded as they were
   project. For a production application we could expand templates to be more granular, we don't
   need to worry about that here.
   ```
-* What you kept: the four templates, the fix-status rule, and removing the backstop and the draft call.
+* PR review follow-up:
+
+  ```
+  Finding — [P2] The default Customer Reply can claim an investigation is underway without evidence
+  When the model selects investigating—the prompt's default for "anything else"—the template tells
+  the customer, "We're investigating the issue." [...] Consider a neutral acknowledgment as the
+  default, and use the investigating template only when the input confirms investigation is underway.
+  ```
+
+  The result: a neutral `acknowledged` default, and `investigating` now gets the same "only if the question says so" rule as the fix replies. An 8-question live run gave the expected reply for every question.
+* What you kept: the templates (five after review), the status-claim rule, and removing the backstop and the draft call.
 * What you changed manually (and why): _(to fill in after review)_

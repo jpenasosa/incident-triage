@@ -35,7 +35,7 @@ A short reply meant for the affected customer: the prepared template for the cho
 _Avoid_: Response, customer message
 
 **Customer Reply**:
-Which prepared Customer Draft fits the question: request_details, investigating, fix_in_progress or fix_delivered.
+Which prepared Customer Draft fits the question: request_details, acknowledged (the neutral default), investigating, fix_in_progress or fix_delivered.
 _Avoid_: Customer status, reply type
 
 **Internal Identifier**:

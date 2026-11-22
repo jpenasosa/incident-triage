@@ -89,7 +89,7 @@ def test_response_contains_only_stored_or_verified_text():
         "Incident 1 was resolved by: Rotated the expired signing certificate.",
         *STANDARD_NEXT_STEPS,
     ]
-    assert result.customer_draft == CUSTOMER_DRAFTS[CustomerReply.INVESTIGATING]
+    assert result.customer_draft == CUSTOMER_DRAFTS[CustomerReply.ACKNOWLEDGED]
     assert result.insufficient_context is False
 
 
@@ -182,6 +182,8 @@ def test_templates_cover_every_reply_and_contain_no_specifics():
         assert not re.search(r"\d|://|@", text), reply  # no numbers, links or addresses
 
 
-def test_prompt_only_allows_fix_replies_when_the_question_says_so():
-    assert "fix_delivered: only if the question says" in ANALYSIS_SYSTEM_PROMPT
+def test_prompt_only_allows_status_claims_when_the_question_says_so():
+    for reply in ("fix_delivered", "fix_in_progress", "investigating"):
+        assert f"{reply}: only if the question says" in ANALYSIS_SYSTEM_PROMPT
+    assert "acknowledged: anything else" in ANALYSIS_SYSTEM_PROMPT  # neutral default
     assert "A past incident's resolution is not evidence" in ANALYSIS_SYSTEM_PROMPT
