@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from incident_triage.models import Incident
+from incident_triage.models import Incident, SearchResult
 
 
 def incident_dict(**overrides: Any) -> dict[str, Any]:
@@ -25,3 +25,17 @@ def make_incident(**overrides: Any) -> Incident:
 
 def ndjson(*rows: dict[str, Any]) -> str:
     return "\n".join(json.dumps(r) for r in rows) + "\n"
+
+
+def make_result(id: int, **overrides: Any) -> SearchResult:
+    data = {
+        "id": id,
+        "title": f"Incident {id}",
+        "snippet": "…",
+        "score": 1.0,
+        "service": "payroll",
+        "environment": "prod",
+        "severity": "SEV2",
+        "created_at": "2026-03-01T10:00:00Z",
+    }
+    return SearchResult.model_validate(data | overrides)

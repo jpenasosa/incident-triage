@@ -34,6 +34,10 @@ class AssistUnavailable(AppError):
 
 
 class LLMClient(Protocol):
+    def ensure_available(self) -> None:
+        """Raise AssistUnavailable now if no call could succeed (e.g. no API key)."""
+        ...
+
     def complete(self, *, system: str, user: str, output: type[T]) -> T:
         """Return the model's reply parsed as `output`, or raise AssistUnavailable."""
         ...
@@ -57,9 +61,12 @@ class OpenAIClient:
                 max_retries=MAX_RETRIES,
             )
 
-    def complete(self, *, system: str, user: str, output: type[T]) -> T:
-        if self._sdk is None:  # fail fast: no network call without a key
+    def ensure_available(self) -> None:
+        if self._sdk is None:
             self._fail("LLM_API_KEY is not set; set it in .env or the environment and restart")
+
+    def complete(self, *, system: str, user: str, output: type[T]) -> T:
+        self.ensure_available()  # fail fast: no network call without a key
 
         try:
             response = self._sdk.responses.parse(

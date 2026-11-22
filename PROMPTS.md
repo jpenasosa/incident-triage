@@ -194,3 +194,23 @@ These are the prompts used with AI tools during the build, recorded as they were
   requirement that invalid output raise AssistUnavailable and return a 503. Handle an empty choices
   list explicitly. Consider also mapping SDK response-validation errors to AssistUnavailable.
   ```
+
+---
+
+**Prompt #8**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Plan the largest ticket (06, `POST /assist`) as focused commits, starting with Candidate retrieval.
+* Prompt (copy/paste):
+
+  ```
+  Since this is the larget ticket, let's split it up the current ticket into multiple focused commits.
+  1. candidate retrieval with a canned response at the API layer. We can use INFO and DEBUG level statements to verify results.
+  2. Customer facing draft response based on the cited incidents
+  ```
+* Result summary:
+  * The AI pointed out that the split was missing a step: the internal LLM call and guardrail validator that produce the Cited Incidents step 2 depends on. We agreed on 3 commits in one PR.
+  * Commit 1 adds `IncidentService.find_candidates()`, which uses the same `search()` path, logs `tool:search` input and output at INFO and Candidate details at DEBUG, and fails fast when there's no key.
+  * It also adds a canned `POST /assist` response, one `OpenAIClient` per app injected into the service, and 7 tests.
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why): _(to fill in after review)_

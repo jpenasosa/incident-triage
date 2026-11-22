@@ -1,6 +1,6 @@
 import pytest
 from factories import incident_dict, ndjson
-from fakes import FakeIncidentRepository
+from fakes import FakeIncidentRepository, FakeLLMClient
 
 from incident_triage.models import IngestResult
 from incident_triage.service import MAX_INGEST_LINES, IncidentService, InvalidIngestError
@@ -8,13 +8,13 @@ from incident_triage.service import MAX_INGEST_LINES, IncidentService, InvalidIn
 
 def ingest(text: str, repo: FakeIncidentRepository | None = None):
     repo = repo or FakeIncidentRepository()
-    return IncidentService(repo).ingest_ndjson(text), repo
+    return IncidentService(repo, FakeLLMClient()).ingest_ndjson(text), repo
 
 
 def errors_of(text: str) -> list[dict]:
     repo = FakeIncidentRepository()
     with pytest.raises(InvalidIngestError) as exc:
-        IncidentService(repo).ingest_ndjson(text)
+        IncidentService(repo, FakeLLMClient()).ingest_ndjson(text)
     assert repo.upserted is None, "nothing may be written when any line is invalid"
     return exc.value.details
 

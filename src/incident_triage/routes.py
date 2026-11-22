@@ -8,7 +8,15 @@ from starlette.concurrency import run_in_threadpool
 
 from incident_triage.db import connect
 from incident_triage.errors import AppError
-from incident_triage.models import MAX_INCIDENT_ID, Incident, IngestResult, SearchPage, SearchQuery
+from incident_triage.models import (
+    MAX_INCIDENT_ID,
+    AssistRequest,
+    AssistResponse,
+    Incident,
+    IngestResult,
+    SearchPage,
+    SearchQuery,
+)
 from incident_triage.repository import SqliteIncidentRepository
 from incident_triage.service import IncidentService
 
@@ -31,7 +39,7 @@ class UnsupportedMediaTypeError(AppError):
 def get_service(request: Request) -> Iterator[IncidentService]:
     """One SQLite connection per request."""
     with connect(request.app.state.settings.DB_PATH) as conn:
-        yield IncidentService(SqliteIncidentRepository(conn))
+        yield IncidentService(SqliteIncidentRepository(conn), request.app.state.llm)
 
 
 ServiceDep = Annotated[IncidentService, Depends(get_service)]
@@ -61,6 +69,21 @@ async def ingest(request: Request, service: ServiceDep) -> IngestResult:
 @router.get("/search")
 def search(query: Annotated[SearchQuery, Query()], service: ServiceDep) -> SearchPage:
     return service.search(query)
+
+
+# Placeholder until LLM analysis lands (ticket 06, step 2). Candidates are in the logs.
+_CANNED_ASSIST = AssistResponse(
+    relevant_incidents=[],
+    next_steps=["Assist analysis is not implemented yet."],
+    customer_draft="",
+    insufficient_context=True,
+)
+
+
+@router.post("/assist")
+def assist(request: AssistRequest, service: ServiceDep) -> AssistResponse:
+    service.find_candidates(request)
+    return _CANNED_ASSIST
 
 
 @router.get("/incidents/{incident_id}")

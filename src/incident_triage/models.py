@@ -127,3 +127,31 @@ class SearchPage(BaseModel):
     limit: int
     offset: int
     results: list[SearchResult]
+
+
+# Stripped before the length checks, so a whitespace-only question is a 422 rather than a
+# silent filter-only search (SearchQuery treats a blank q as absent).
+Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+class AssistRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: Question
+    environment: Environment | None = None
+    service: Service | None = None
+    severity: Severity | None = None
+    tags: list[Tag] = Field(default=[], max_length=20)
+
+
+class CitedIncident(BaseModel):
+    id: int
+    title: str
+    reason: str
+
+
+class AssistResponse(BaseModel):
+    relevant_incidents: list[CitedIncident]
+    next_steps: list[str]
+    customer_draft: str
+    insufficient_context: bool

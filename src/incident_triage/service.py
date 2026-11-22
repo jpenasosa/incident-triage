@@ -8,11 +8,20 @@ import structlog
 from pydantic import ValidationError
 
 from incident_triage.errors import AppError, NotFoundError
-from incident_triage.models import Incident, IngestResult, SearchPage, SearchQuery
+from incident_triage.llm import LLMClient
+from incident_triage.models import (
+    AssistRequest,
+    Incident,
+    IngestResult,
+    SearchPage,
+    SearchQuery,
+    SearchResult,
+)
 from incident_triage.repository import IncidentRepository
 
 MAX_INGEST_LINES = 1000
 MAX_REPORTED_ERRORS = 50
+CANDIDATE_LIMIT = 10
 
 log = structlog.get_logger()
 
@@ -23,8 +32,9 @@ class InvalidIngestError(AppError):
 
 
 class IncidentService:
-    def __init__(self, repository: IncidentRepository):
+    def __init__(self, repository: IncidentRepository, llm: LLMClient):
         self._repository = repository
+        self._llm = llm
 
     def ingest_ndjson(self, text: str) -> IngestResult:
         """Validate every line first; write nothing unless the whole batch is valid."""
@@ -51,6 +61,40 @@ class IncidentService:
             returned=[r.id for r in page.results],
         )
         return page
+
+    def find_candidates(self, request: AssistRequest) -> list[SearchResult]:
+        """Retrieve assist Candidates through the same search path as GET /search."""
+        self._llm.ensure_available()  # fail fast: no search if assist can't finish
+        query = SearchQuery(
+            q=request.question,
+            **request.model_dump(include={"environment", "service", "severity", "tags"}),
+            limit=CANDIDATE_LIMIT,
+        )
+        log.info(
+            "assist_step",
+            step="tool:search",
+            phase="input",
+            q=query.q,
+            filters=query.model_dump(include={"environment", "service", "severity", "tags"}),
+            limit=query.limit,
+        )
+        page = self.search(query)
+        candidates = page.results
+        log.info(
+            "assist_step",
+            step="tool:search",
+            phase="output",
+            hits=page.total,
+            top_ids=[c.id for c in candidates],
+        )
+        log.debug(
+            "assist_candidates",
+            candidates=[
+                {"id": c.id, "score": c.score, "service": c.service, "title": c.title}
+                for c in candidates
+            ],
+        )
+        return candidates
 
     def get_incident(self, incident_id: int) -> Incident:
         incident = self._repository.get(incident_id)
