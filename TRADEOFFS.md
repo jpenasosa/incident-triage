@@ -2,7 +2,7 @@
 
 ## Done
 
-Every required endpoint, the observability contract, tests and docs are in place. Each part was built as its own ticket and PR, reviewed by me and by Aikido.
+Every required endpoint, the observability contract, tests and docs are in place. Each part was built as its own ticket and PR, reviewed by me and by Codex (`gpt-6-luna`).
 
 - **Configuration:**
   - Settings come from env vars or `.env` (`example.env` is the template), and an invalid value gives a clear error at startup.

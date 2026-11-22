@@ -4,11 +4,11 @@
 
 I used Claude Code (Claude Opus 5.5) for the whole build. I set the scope, made the decisions and reviewed every change.
 
-- **Design before code:** a structured "grilling" session (`grill-with-docs`) turned the brief into about 38 decisions. Each one came with the AI's recommended answer, and I accepted, changed or overruled it. The results are in `GLOSSARY.md`, the ADRs and a spec, and the AI then sliced the work into tickets.
+- **Design before code:** a structured "grilling" session, with the `grill-with-docs` skill from the `mattpocock-skills@claude-plugins-official` plugin, turned the brief into about 38 decisions. Each one came with the AI's recommended answer, and I accepted, changed or overruled it. The results are in `GLOSSARY.md`, the ADRs and a spec, and the AI then sliced the work into tickets.
 - **Process:**
   - Every ticket had its own branch and PR.
   - The AI proposed each commit message and waited for my approval before committing.
-  - Each PR was reviewed by me and by Aikido, and findings were pasted back verbatim for the AI to fix.
+  - Each PR was reviewed by me and by Codex, OpenAI's coding agent running `gpt-6-luna`, as a second reviewer. Findings were pasted back verbatim for the AI to fix.
   - Near the end, a separate reviewer checked `main` against the brief. Its findings became tickets 09–11.
 - **Research:**
   - Sub-agents read the Turso and Anthropic docs, and every claim was then checked by running real code.
@@ -47,7 +47,7 @@ I used Claude Code (Claude Opus 5.5) for the whole build. I set the scope, made 
   - Error paths (missing key, bad key, unknown model) were triggered live, which costs nothing because OpenAI rejects them before using any tokens.
 - **A clean clone before submission:** every README command was run from a fresh clone of `main`. It found one stale sample output, now fixed.
 - **Scratch experiments for third-party claims,** such as Turso's FTS behaviour, instead of trusting a summary of the docs.
-- **Two reviewers on every PR,** me and Aikido, plus one external review of the whole repository against the brief.
+- **Two reviewers on every PR,** me and Codex, plus one external review of the whole repository against the brief.
 
 ## Prompt patterns that worked
 
@@ -55,5 +55,5 @@ I used Claude Code (Claude Opus 5.5) for the whole build. I set the scope, made 
 - **Ask the AI to compare the code with the brief:** "review the requirements and suggest changes" found the tool-calling gap and the opaque-error gap, and an external review found the draft-grounding gap. Each became a ticket.
 - **Paste review findings verbatim:** the AI fixes the stated problem, writes a test that fails without the fix, and often finds the same bug elsewhere. For example, the normalized-logging finding led to the same fix in `overridden`.
 - **Approval gates:** "no commits without my approval" and one PR per ticket kept each change small enough to review, and made the AI state what it had verified before each commit.
-- **Ask for status directly:** "is ticket 09 completed?" got an honest list of what was left instead of an assumption that the work was done.
+- **Ask for status directly:** asking "is ticket 09 completed?" got an honest list of what was left instead of an assumption that the work was done.
 - **Make claims checkable:** prefer designs where code can verify the model's output (verbatim evidence, enum choices, templates) over prompt instructions that can't be enforced.
