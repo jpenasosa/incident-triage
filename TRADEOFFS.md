@@ -1,68 +1,103 @@
 # Tradeoffs
 
-_This is a running log, updated with each ticket and finalised in ticket 08._
-
 ## Done
 
-- Ticket 01, scaffolding:
-  - config from env vars, with a clear startup error for invalid values; `LLM_API_KEY` is optional
-  - JSON logs with a correlation ID on every request log line
-  - one consistent error shape
-- Ticket 02, ingest:
-  - a deterministic generator producing 300 Incidents
-  - `POST /ingest` takes NDJSON and is atomic and idempotent, matching records on `id` and using a content hash for updated versus skipped
-  - SQLite with FTS5, kept in sync on update
-- Ticket 03: `GET /incidents/{id}` returns the full record, a 404 in the standard shape for an unknown id, and a 422 for a malformed id
-- Ticket 04: `GET /search`. Ranked FTS5 search (BM25 with column weights) plus filters for environment, service, severity and tags (all tags must match), with pagination and a `total` count. User text is turned into quoted OR terms, so FTS5 syntax can't be injected.
-- Ticket 05: the LLM client (`llm.py`). It calls the OpenAI Responses API (`responses.parse`), which derives a strict JSON schema from the Pydantic output model and validates the reply against it. Requests send `store=False`. A live call has been confirmed (about 2s). The timeout and retries are bounded. Every failure becomes `ASSIST_UNAVAILABLE`, with the cause logged at ERROR (opaque at first, made actionable in ticket 10). It isn't wired into an endpoint yet; that's ticket 06.
-- Ticket 06:
-  - `POST /assist` retrieves Candidates through `search()`, deduplicates them by title, and runs an internal LLM analysis over the full records.
-  - A deterministic guardrail drops any citation of an Incident the model wasn't shown, or whose evidence isn't found word for word in the stored record. It falls back to a fixed "need more info" response when the model reports insufficient context or no valid citation remains, and zero Candidates meant no LLM call at all (until ticket 09).
-  - A second LLM call wrote the Customer Draft from allowlisted, customer-safe fields only (ADR 0003), with a backstop for identifiers and length. Ticket 11 replaced both.
-  - Every step is logged, and the full pipeline has been confirmed against the real API (about 4.6s for both calls).
-- Ticket 10: assist failures are actionable in the API response. Each failure maps to a `reason` with a fixed message saying what to set or do (`llm_key_missing`, `llm_key_rejected`, `llm_model_unknown`, `llm_timeout`, `llm_rate_limited`, `llm_upstream_error`). Provider error text and secrets never reach the response, and the raw cause is logged at ERROR. The missing-key, rejected-key and unknown-model cases were confirmed against the real API.
-- Ticket 11: the Customer Draft is a prepared template chosen by the model's `customer_reply` (ADR 0006, superseding ADR 0003). No model writes customer-facing text, and assist makes one LLM call (2.3–4.7s live). The neutral `acknowledged` is the default, and the replies that state a status need the question to say so. The README's 8-question QA run gave the expected reply for every question.
-- Ticket 09: the model drives retrieval through a strict `search_incidents` function tool backed by `IncidentService.search()` (ADR 0007). It must search once and may search up to 3 times. Filters set in the request override the model's, and citations are checked against everything any search returned. In a live run of 10 questions, the model picked its own key terms, added fitting filters, retried with other words when a search came back empty, and kept the engineer's filters. Every request returned 200.
-- **Integer Incident ids:** the id is a caller-supplied positive integer stored as SQLite's `INTEGER PRIMARY KEY`, the rowid itself. That avoids the hidden unique index a `TEXT` key creates, and FTS rows share the id directly. The cost is that ids aren't recognisable in free text the way `INC-42` would be. Since ticket 11 no model writes customer text, so ids can't reach the draft at all.
+Every required endpoint, the observability contract, tests and docs are in place. Each part was built as its own ticket and PR, reviewed by me and by Codex (`gpt-6-luna`).
+
+- **Configuration:**
+  - Settings come from env vars or `.env` (`example.env` is the template), and an invalid value gives a clear error at startup.
+  - `LLM_API_KEY` is optional: ingest and search work without it, startup logs a WARNING, and `/assist` fails fast.
+- **Observability:**
+  - JSON logs to stdout, with a correlation ID on every request log line. The ID comes from `X-Correlation-ID` if it's valid, otherwise it's generated, and it's echoed back.
+  - `/assist` logs each step: `llm:analyze`, then `tool:search` input and output for every search, `guardrail` (shown, selected and dropped ids) and `draft`.
+- **Errors:** one error shape, `{"error": {code, message, correlation_id, details?}}`, for every failure, including 404, 413, 415, 422 and unhandled 500s.
+- **Data:**
+  - A deterministic generator writes 300 synthetic Incidents. The same seed and pinned Faker version give byte-identical output.
+  - Storage is SQLite with an FTS5 index (ADR 0001).
+  - Incident ids are positive integers, stored as SQLite's `INTEGER PRIMARY KEY`, the rowid itself.
+- **`POST /ingest`:**
+  - The body is NDJSON, capped at 5 MB and 1,000 lines.
+  - A batch is all or nothing, with errors reported per line.
+  - It's idempotent: records match on `id`, and a content hash decides between updated and skipped.
+- **`GET /search`:**
+  - Ranked BM25 search, weighted towards titles, plus filters for environment, service, severity and tags (every tag must match).
+  - Pagination and a `total` count.
+  - User text becomes quoted OR terms, so FTS5 syntax can't be injected.
+- **`GET /incidents/{id}`:** returns the full record, 404 in the standard shape for an unknown id, and 422 for a malformed id.
+- **`POST /assist`:**
+  - **Retrieval (ADR 0007):** the model drives retrieval through a strict `search_incidents` function tool backed by `IncidentService.search()`, the same path as `GET /search`. It must search once and may search up to 3 times. Filters set in the request override the model's.
+  - **Grounding (ADR 0005):**
+    - Each `reason` is an excerpt from the record, checked word for word.
+    - Citations are checked against everything any search returned.
+    - `next_steps` quote the stored resolutions, plus fixed process steps.
+    - The Customer Draft is a prepared template chosen by the model's `customer_reply` (ADR 0006).
+    - No unverified model prose reaches the response.
+  - **Not enough to go on:** when no search found anything, the model says nothing is relevant, or no citation survives the check, the response says so and asks for more information.
+  - **Failures:** each LLM failure returns 503 with a fixed message for its category, saying what to set or do, and a `details` reason.
+- **Tests:** 158 tests: query building, the search repository, ingest, the guardrails, the tool loop (stubbed SDK) and the assist flow (scripted fake model), plus API tests. Ruff checks lint and formatting.
+- **Docs:**
+  - README with run steps, curl examples and a 10-question QA table for assist.
+  - `GLOSSARY.md`, ADRs 0001–0007, `PROMPTS.md` and `AI-NOTES.md`.
 
 ## Not done
 
+- **`GET /debug/trace/{correlation_id}` (optional in the brief):** skipped for time. The approach would be:
+  - An in-memory, bounded ring buffer, for example the last 500 correlation IDs, holding each request's assist steps. They'd be the same data that's already logged.
+  - A small `StepRecorder`, or a structlog processor, writes each step both to the log and to the buffer.
+  - The endpoint returns the steps or a 404, and is only enabled when `DEBUG_TRACE=true`.
+  - Known limits: it's per process, lost on restart, and has no auth. In production the same data would come from a log or trace backend, for example OpenTelemetry spans per assist step.
+  - Until then, `grep '"correlation_id": "<id>"'` on the JSON logs gives the same step list.
 - **Ingest by multipart file upload:** the body is raw NDJSON instead. It's simpler, and curl's `--data-binary @file` covers the use case.
 - **Deleting Incidents through ingest:** Incidents missing from a later batch are kept, not removed.
+- **Auth, rate limiting, a container image and CI:** none of them were in scope for a local prototype.
 
 ## Deliberate interpretations of the brief
 
-- **"3 to 5 relevant incidents":** assist returns **1–5**. Making up relevance to reach three would break the grounding rules.
+- **"The 3 to 5 most relevant incident IDs":** assist returns **1–5**, a deliberate deviation that I kept after an external review. Padding the list to three when only one or two Incidents are relevant would mean citing irrelevant Incidents, which breaks the grounding rules ("must not invent incident details"). The prompt asks for the most relevant 1–5, and the guardrail drops any citation it can't verify. When nothing qualifies, the response is the "not enough to go on" path.
+- **"Logs it as a tool step (`tool:search`)":** read as function calling. The model chooses what to search for, and each call is logged as a `tool:search` step (ADR 0007). It used to be a fixed search with the question, which met the letter of the brief but not its intent.
 - **"Return a clear error explaining what to set and how to run it":**
-  - A missing `LLM_API_KEY` doesn't block startup, so search and ingest work without one. The app logs a WARNING at startup saying what to set.
-  - `/assist` without a key fails fast, with no search and no LLM call.
-  - Each LLM failure returns `ASSIST_UNAVAILABLE` with a fixed message for its category: which variable to set and to restart with `uv run start`, or to retry. A `details` reason lets clients branch on the category.
-  - The messages are fixed text, so provider error bodies (which can echo part of a key) never reach API users. The raw cause is logged at ERROR under the correlation ID. This was opaque until ticket 10. The trade-off is that API users now learn configuration facts, such as "the key was rejected". That's acceptable for an internal triage tool, but a public API would keep these messages for operators only.
-- **Customer Drafts are generic on purpose:** five prepared templates (ADR 0006). That's fine for a prototype, and a production system would use more granular templates.
+  - Every LLM failure returns `ASSIST_UNAVAILABLE` with a fixed message for its category: which variable to set and to restart with `uv run start`, or to retry. A `details` reason lets clients branch on the category.
+  - The messages are fixed text, so provider error bodies, which can echo part of a key, never reach API users. The raw cause is logged at ERROR under the correlation ID.
+  - The trade-off is that API users learn configuration facts, such as "the key was rejected". That's acceptable for an internal triage tool, but a public API would show them to operators only.
+- **"A short customer facing draft":** five prepared templates (ADR 0006): `request_details`, `acknowledged`, `investigating`, `fix_in_progress` and `fix_delivered`. A draft never describes an Incident, so it can't invent details. That's fine for a prototype, and a production system would use more granular templates.
+- **Environment variables:** the brief's example lists `LLM_PROVIDER` and `DATA_PATH`. Neither is used:
+  - Only OpenAI is supported (ADR 0004).
+  - Data is sent through `/ingest` rather than read from a path at startup.
+  - `DB_PATH` is where the SQLite file lives.
 
 ## Known issues and risks
 
-- Uvicorn's own startup and shutdown lines are plain text with no correlation ID. Every *request* log line has one.
-- **Single provider.** Only OpenAI is supported (ADR 0004, superseding ADR 0002). Another provider means a new `LLMClient` implementation.
-- **The synthetic text repeats.** There are 24 failure templates, and only numbers and weekdays vary. That's realistic enough for search and assist demos, but many Incidents look alike.
-- **The hash covers the whole record.** A change to any field, including `created_at`, counts as `updated`. There's no notion of which fields matter.
-- **The schema is applied only when the database file is new.** Adding a schema file later has no effect on an existing database: delete `data/incidents.db` and ingest again. If the first initialisation fails part-way, the file is left behind and later starts skip it, so delete the file in that case too.
-- **No stemming.** The default `unicode61` tokenizer matches whole words only: "timing" doesn't match "timeout", and "failing" doesn't match "failed". Switching the FTS table to `tokenize='porter unicode61'` would fix that, at the cost of a schema change and re-ingest.
-- **OR semantics favour recall.** Every word in `q` widens the result set, and BM25 ranks Incidents matching more words higher. `total` can therefore be large for long questions.
-- **No stop-word filtering.** Common words like "the" and "is" match almost every Incident, so a vague question still returns hits (264 in one test). For assist, the model then reports insufficient context or searches again with other words. Each search is an extra LLM round-trip, and a stop-word list would cut down the noise.
-- **Status replies rest on the model's reading of the question.** `investigating`, `fix_in_progress` and `fix_delivered` are allowed only when the question says so, but code can't verify that choice. The default, `acknowledged`, claims no status, so a wrong pick overstates progress at most and never adds incident details. The choice also varies with wording: the same SSO report got `investigating` in one run before this rule and `request_details` in another, when no start time was given.
 - **Retrieval depends on the model's queries (ADR 0007).** The model can search badly, for example with too narrow a query or an unhelpful filter. Up to 3 searches and "try other words" in the prompt soften that, and the engineer's filters are always enforced. It costs latency and tokens: one extra LLM round-trip per search, and every record returned goes back into the model's context.
-- **Assist answers are literal by design (ADR 0005).** No unverified model prose reaches the internal response. Reasons are excerpts verified against the records, and next steps quote stored resolutions plus fixed process steps. That guarantees nothing is invented, but answers don't synthesise across Incidents. A citation the model paraphrases instead of quoting is dropped, which costs recall rather than safety.
+- **Results vary between runs.** Which Incident is cited, how many searches run, and whether a vague question cites something or takes the "not enough to go on" path can all change. The chosen reply matched every row of the README QA table in two live runs.
+- **Status replies rest on the model's reading of the question.** `investigating`, `fix_in_progress` and `fix_delivered` are allowed only when the question says so, but code can't verify that choice. The default, `acknowledged`, claims no status, so a wrong pick can at worst overstate progress, and never adds incident details.
+- **Assist answers are literal by design (ADR 0005).** That guarantees nothing is invented, but answers don't synthesise across Incidents. A citation the model paraphrases instead of quoting is dropped, which costs recall rather than safety.
+- **Timeout budget.** `LLM_TIMEOUT_SECONDS` defaults to 20s with one retry, so the worst case is about 40s per LLM call. Assist makes 2–4 calls, so its worst case is about 160s, although live assists took 3.7–9.6s. There's no overall deadline per request.
+- **Single provider.** Only OpenAI is supported (ADR 0004, superseding ADR 0002). Another provider means a new `LLMClient` implementation.
+- **No stemming.** The default `unicode61` tokenizer matches whole words only: "timing" doesn't match "timeout", and "failing" doesn't match "failed". The model's ability to rephrase hides some of this in assist, but not in `GET /search`.
+- **No stop-word filtering, and OR semantics favour recall.** Common words like "the" and "is" match almost every Incident, so `total` can be large for long or vague questions (264 hits in one test). For assist, that's noise in the model's context and sometimes an extra search.
+- **The synthetic text repeats.** There are 24 failure templates, and only numbers and weekdays vary. That's realistic enough for demos, but many Incidents look alike, and ties are broken newest first.
 - **Duplicate Candidates are collapsed by exact title (case-insensitive).** Near-duplicates with different titles still reach the model separately.
+- **The hash covers the whole record.** A change to any field, including `created_at`, counts as `updated`.
+- **The schema is applied only when the database file is new.** After a schema change, delete `data/incidents.db` and ingest again. If the first initialisation fails part-way, delete the file in that case too.
 - **Pagination uses offsets.** That's fine for slowly changing data. Under heavy concurrent writes, pages could shift between requests.
-- **Timeout budget.** `LLM_TIMEOUT_SECONDS` defaults to 20s with one retry, so the worst case is about 40s per LLM call. Assist makes 2–4 calls (ADR 0007), so its worst case is about 160s. Live assists took 3.7–9.6s. A production setup would put an overall deadline on the request.
-- **Output models shape the strict schema.** `responses.parse` converts the Pydantic output model to a strict JSON schema. Output models should forbid extra fields, so the schema sent and the parser that validates the reply agree.
-- **Ingest runs in one transaction per request.** At 1,000 lines that's fast, about 30 ms for 300 lines. Much larger batches would need chunking.
+- **Ingest runs in one transaction per request.** At the 1,000-line cap that's fast, about 30 ms for 300 lines. Much larger batches would need chunking.
+- **Output models shape the strict schema.** `responses.parse` converts Pydantic models into strict JSON schemas, so output and tool-argument models must forbid extra fields and make every field required (nullable instead of optional).
+- **Uvicorn's own startup and shutdown lines** are plain text with no correlation ID. Every *request* log line has one.
 
 ## With 2 more hours
 
-_(to do)_
+1. **Turn the README QA table into an opt-in live test:** `pytest -m live`, skipped without a key. It would assert each row's expected reply and that the engineer's filters stay on every search, so prompt changes get checked the same way every time.
+2. **Add an overall deadline for assist,** for example 30s across all turns, mapped to the existing `llm_timeout` reason. That caps the 160s worst case.
+3. **Build `/debug/trace/{correlation_id}`** with the approach above (behind `DEBUG_TRACE=true`). The step data is already structured, so it's mostly a recorder and a route.
+4. **Add stemming and stop words:** `tokenize='porter unicode61'` plus a small stop-word list in `build_match_query`, measured with the QA test before and after. It's a schema change, so the database needs rebuilding.
 
 ## With 2 more days
 
-_(to do)_
+- **Better retrieval:** hybrid search (BM25 plus embeddings) for symptoms worded differently from the records, and near-duplicate collapsing on more than exact titles. Probably on Postgres, with `tsvector` and `pgvector`, once more than one instance needs to share the data.
+- **An evaluation set:** a few dozen real-looking questions with the Incidents they should cite, tracking citation precision and recall, reply accuracy, searches per assist and latency per model or prompt change.
+- **Production observability:** OpenTelemetry spans for each assist step and LLM call, with token usage and cost per request, replacing the in-memory trace endpoint.
+- **Hardening:** auth, rate limits on `/assist` (it's the expensive endpoint), a container image, CI running tests and lint, and an async LLM client so slow calls don't tie up worker threads.
+- **Product:**
+  - More granular Customer Draft templates, for example per product area or with a workaround.
+  - An operator view showing the draft beside the Cited Incidents.
+  - Incident deletion or tombstones in ingest.
