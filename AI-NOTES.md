@@ -26,6 +26,8 @@
 
 11. **The first guardrail only checked IDs.** The AI's first version of the citation guardrail checked that cited IDs had been shown to the model, but still returned the model's free-text reasons and next steps. Those could contain invented details, which the brief forbids as a hard requirement. Code review flagged it. The fix makes the model quote evidence, which code verifies word for word against the record, and builds next steps from stored resolution summaries (ADR 0005). A live run confirmed the model quotes exactly, with no citations dropped.
 
+12. **The output checks were narrower than they looked.** The draft prompt asked for at most 120 words, but nothing checked the output. The hostname check only knew 10 suffixes, so it missed `.ca`, `.uk` and others, and the IP check was IPv4-only. Code review caught all three. The fix adds a word-count check, a generic hostname pattern and IP detection through `ipaddress`, covering IPv6, brackets, zones and ports. Running the new cases through the old function confirmed it missed all five of them.
+
 ## How changes were validated
 
 - Unit tests for each ticket (`uv run pytest`), plus `ruff`.

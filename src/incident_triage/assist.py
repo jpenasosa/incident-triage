@@ -6,6 +6,7 @@ evidence from them; code verifies each quote against the stored record and build
 next steps from stored resolution summaries plus fixed process steps.
 """
 
+import ipaddress
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -145,13 +146,15 @@ def build_next_steps(cited_records: Sequence[Incident]) -> list[str]:
 
 # --- Customer Draft (call 2, ADR 0003) ---------------------------------------------------
 
-DRAFT_SYSTEM_PROMPT = """\
+MAX_DRAFT_WORDS = 120
+
+DRAFT_SYSTEM_PROMPT = f"""\
 You write a short, friendly reply that a support engineer can send to a customer who
 reported a problem. You receive only the problem's status, impact category, whether the
 customer needs to act, and summaries of related past incidents.
 
 Rules:
-- At most 120 words, plain text, no headings or lists.
+- At most {MAX_DRAFT_WORDS} words, plain text, no headings or lists.
 - Base every statement on the context provided. Do not promise timelines or fixes.
 - Do not mention internal systems, hostnames, IP addresses, email addresses, ticket or
   incident numbers, or people.
@@ -169,16 +172,16 @@ SAFE_CUSTOMER_DRAFT = (
     "update as soon as we have more information."
 )
 
-# Backstop: patterns that look like Internal Identifiers. A match replaces the draft.
-_INTERNAL_IDENTIFIER_PATTERNS = {
-    "url": re.compile(r"https?://", re.IGNORECASE),
-    "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
-    "ip_address": re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),
-    "hostname": re.compile(
-        r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|cloud|internal|local|corp|lan)\b",
-        re.IGNORECASE,
-    ),
-}
+# Backstop patterns for Internal Identifiers. Deliberately broad: a false positive only
+# costs a generic (safe) draft, a false negative leaks an identifier.
+_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://", re.IGNORECASE)
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Any dotted name ending in an alphabetic label of 2+ characters: status.example.ca,
+# intranet.example.uk, db-prod-03.internal. (Also flags names like "Node.js": acceptable.)
+_HOSTNAME = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b", re.IGNORECASE)
+# Tokens that could be IP literals; ipaddress decides. Covers IPv4, IPv6 (compressed,
+# bracketed, with zone) and IPv4:port.
+_IP_CANDIDATE = re.compile(r"[0-9a-f:.%\[\]]*[.:][0-9a-f:.%\[\]]*", re.IGNORECASE)
 
 
 class CustomerDraft(BaseModel):
@@ -207,6 +210,40 @@ def build_draft_context(analysis: TriageAnalysis, cited_records: Sequence[Incide
     return json.dumps(context, indent=1)
 
 
+def _is_ip_literal(token: str) -> bool:
+    token = token.strip("[]").rstrip(".,;")
+    candidates = {token, token.split("%")[0]}  # IPv6 zone index, e.g. fe80::1%eth0
+    if token.count(":") == 1:  # IPv4:port
+        candidates.add(token.split(":")[0])
+    for candidate in candidates:
+        try:
+            ipaddress.ip_address(candidate)
+            return True
+        except ValueError:
+            continue
+    return False
+
+
 def internal_identifier_matches(text: str) -> list[str]:
-    """Names of the Internal Identifier patterns found in `text` (empty if clean)."""
-    return [name for name, pattern in _INTERNAL_IDENTIFIER_PATTERNS.items() if pattern.search(text)]
+    """Names of the Internal Identifier kinds found in `text` (empty if clean)."""
+    found = []
+    if _URL.search(text):
+        found.append("url")
+    if _EMAIL.search(text):
+        found.append("email")
+    if any(_is_ip_literal(t) for t in _IP_CANDIDATE.findall(text)):
+        found.append("ip_address")
+    if _HOSTNAME.search(text):
+        found.append("hostname")
+    return found
+
+
+def draft_rejection_reasons(draft: str) -> list[str]:
+    """Why a Customer Draft can't be returned as is (empty if it can)."""
+    reasons = internal_identifier_matches(draft)
+    words = len(draft.split())
+    if words == 0:
+        reasons.append("empty")
+    elif words > MAX_DRAFT_WORDS:
+        reasons.append("too_long")
+    return reasons

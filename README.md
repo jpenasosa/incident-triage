@@ -143,7 +143,7 @@ The body takes `question` (1–2000 characters, not blank) plus the same optiona
 1. **`tool:search`:** the question runs through the same search as `GET /search`, returning the top 10 Candidates. Candidates with the same title are collapsed.
 2. **`llm:analyze`:** the LLM picks up to 5 relevant Incidents and quotes evidence from each one.
 3. **`guardrail`:** code drops any citation of an Incident the model wasn't shown, and any whose quote isn't in the stored record. `reason` is that verified quote, and `next_steps` quote the stored resolutions plus fixed steps (ADR 0005).
-4. **`llm:draft`:** a second LLM call writes `customer_draft` from customer-safe fields only (ADR 0003). It never sees Incident ids or the engineer's question. If the draft looks like it contains a hostname, IP, email or URL, it's replaced with a safe fixed reply.
+4. **`llm:draft`:** a second LLM call writes `customer_draft` from customer-safe fields only (ADR 0003). It never sees Incident ids or the engineer's question. If the draft looks like it contains a hostname, IP address (IPv4 or IPv6), email or URL, or it's empty or longer than 120 words, it's replaced with a safe fixed reply.
 
 **When nothing relevant is found** (no search hits, the model says so, or no citation survives the guardrail), the response has `insufficient_context: true`, no Incidents, and next steps and a draft that ask for more information.
 

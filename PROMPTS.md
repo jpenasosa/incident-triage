@@ -231,5 +231,15 @@ These are the prompts used with AI tools during the build, recorded as they were
   * Adds `internal_identifier_matches()`, a backstop for hostnames, IPs, emails and URLs that falls back to a safe draft. The insufficient paths use a fixed draft with no second call.
   * Adds README sections for Assist and Troubleshooting, and 13 new tests. A live run returned careful drafts with no identifiers.
 * Open question, recorded in TRADEOFFS: how strict the draft and next steps should be is a product decision. The draft is reviewed by an operator against the Cited Incidents.
+* Follow-up review: added a check for the 120-word limit (the prompt alone didn't enforce it), broadened hostname detection beyond a fixed list of suffixes, and moved IP detection to `ipaddress`, which also covers IPv6. A rejected draft is replaced with the safe draft, and the reasons are logged.
+
+  ```
+  - The prompt requests at most 120 words, but CustomerDraft.draft has no length constraint and the
+    returned text is not checked. [...] Validate the word count and use the safe canned draft when it
+    exceeds the limit.
+  - The hostname regex only recognizes a fixed list of suffixes, so it misses addresses such as
+    status.example.ca and intranet.example.uk. The IP check covers IPv4 only [...] consider using
+    broader hostname detection and Python's ipaddress module for IP literals.
+  ```
 * What you kept: _(to fill in after review)_
 * What you changed manually (and why): _(to fill in after review)_

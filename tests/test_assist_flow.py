@@ -186,6 +186,9 @@ def test_draft_call_sees_only_the_allowlisted_context():
         "The server at 10.2.3.4 has been restarted.",
         "Contact oncall@acme-hr.com for help.",
         "See https://status.example for updates.",
+        "Updates will be posted on status.example.ca shortly.",
+        "The node 2001:db8::8a2e:370:7334 was restarted.",
+        "We are on it. " * 60,  # over MAX_DRAFT_WORDS
     ],
 )
 def test_backstop_replaces_drafts_with_internal_identifiers(leaky, capsys):

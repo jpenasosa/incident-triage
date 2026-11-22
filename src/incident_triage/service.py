@@ -20,7 +20,7 @@ from incident_triage.assist import (
     build_draft_context,
     build_next_steps,
     dedupe_by_title,
-    internal_identifier_matches,
+    draft_rejection_reasons,
 )
 from incident_triage.errors import AppError, NotFoundError
 from incident_triage.llm import LLMClient
@@ -167,10 +167,10 @@ class IncidentService:
             user=build_draft_context(analysis, cited_records),
             output=CustomerDraft,
         ).draft
-        matches = internal_identifier_matches(draft)
-        log.info("assist_step", step="llm:draft", phase="output", backstop_matches=matches)
-        if matches:
-            log.warning("customer_draft_replaced", matches=matches)
+        rejected = draft_rejection_reasons(draft)
+        log.info("assist_step", step="llm:draft", phase="output", rejected=rejected)
+        if rejected:
+            log.warning("customer_draft_replaced", reasons=rejected)
             return SAFE_CUSTOMER_DRAFT
         return draft
 

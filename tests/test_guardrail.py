@@ -4,10 +4,12 @@ from factories import make_incident, make_result
 
 from incident_triage.assist import (
     MAX_CITATIONS,
+    MAX_DRAFT_WORDS,
     STANDARD_NEXT_STEPS,
     apply_guardrail,
     build_next_steps,
     dedupe_by_title,
+    draft_rejection_reasons,
     evidence_is_verbatim,
     internal_identifier_matches,
 )
@@ -118,12 +120,42 @@ def test_dedupe_keeps_best_ranked_per_title():
     ("text", "expected"),
     [
         ("We restarted db-prod-03.internal.", ["hostname"]),
-        ("Server 10.0.0.12 was patched.", ["ip_address"]),
+        ("Check status.example.ca for updates", ["hostname"]),
+        ("Logs are on intranet.example.uk now", ["hostname"]),
         ("Email ops@corp.example.com", ["email", "hostname"]),
         ("Details at http://intranet/page", ["url"]),
-        ("Our team rotated an expired certificate and logins are working again.", []),
-        ("Version 2.3 shipped; about 1.5x overtime was corrected.", []),  # no false positives
+        ("Server 10.0.0.12 was patched.", ["ip_address"]),
+        ("Reach it at 10.0.0.12:8443 instead", ["ip_address"]),
+        ("The node 2001:db8::8a2e:370:7334 rebooted", ["ip_address"]),
+        ("Bound to [fe80::1%eth0] on start", ["ip_address"]),
+        ("Loopback ::1 was refused", ["ip_address"]),
     ],
 )
-def test_internal_identifier_backstop(text, expected):
+def test_backstop_detects_internal_identifiers(text, expected):
     assert internal_identifier_matches(text) == expected
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Our team rotated an expired certificate and logins are working again.",
+        "Version 2.3 shipped; about 1.5x overtime was corrected.",
+        "We expect an update by 10:30 a.m. (U.S. Eastern), e.g. via email.",
+        "SEV2 impact on login access: no action is needed from you.",
+    ],
+)
+def test_backstop_ignores_ordinary_customer_text(text):
+    assert internal_identifier_matches(text) == []
+
+
+@pytest.mark.parametrize(
+    ("draft", "expected"),
+    [
+        ("word " * MAX_DRAFT_WORDS, []),  # exactly at the limit is fine
+        ("word " * (MAX_DRAFT_WORDS + 1), ["too_long"]),
+        ("   ", ["empty"]),
+        ("See status.example.ca. " + "word " * MAX_DRAFT_WORDS, ["hostname", "too_long"]),
+    ],
+)
+def test_draft_rejection_reasons(draft, expected):
+    assert draft_rejection_reasons(draft) == expected
