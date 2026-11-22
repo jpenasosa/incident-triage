@@ -132,7 +132,7 @@ curl -s -X POST http://localhost:8000/assist \
  "next_steps": ["Incident 258 was resolved by: An expired signing certificate was rotated. Added certificate expiry monitoring with a 30-day warning.",
                 "Confirm the affected service, environment and start time match the cited incidents.",
                 "Check for recent deployments or configuration changes in the affected service."],
- "customer_draft": "We’re investigating the login access issue. No action is needed from you right now, and we’ll share an update when we have more information.",
+ "customer_draft": "Thank you for reaching out. To help us investigate, could you tell us which part of the product is affected, when the problem started, the exact error message you see, and roughly how many users are affected?",
  "insufficient_context": false}
 ```
 
@@ -143,9 +143,50 @@ The body takes `question` (1–2000 characters, not blank) plus the same optiona
 1. **`tool:search`:** the question runs through the same search as `GET /search`, returning the top 10 Candidates. Candidates with the same title are collapsed.
 2. **`llm:analyze`:** the LLM picks up to 5 relevant Incidents and quotes evidence from each one.
 3. **`guardrail`:** code drops any citation of an Incident the model wasn't shown, and any whose quote isn't in the stored record. `reason` is that verified quote, and `next_steps` quote the stored resolutions plus fixed steps (ADR 0005).
-4. **`llm:draft`:** a second LLM call writes `customer_draft` from customer-safe fields only (ADR 0003). It never sees Incident ids or the engineer's question. If the draft looks like it contains a hostname, IP address (IPv4 or IPv6), email or URL, or it's empty or longer than 120 words, it's replaced with a safe fixed reply.
+4. **`draft`:** `customer_draft` is a prepared template chosen by the model's `customer_reply`: `request_details`, `acknowledged`, `investigating`, `fix_in_progress` or `fix_delivered` (ADR 0006). No model writes customer-facing text. The default is the neutral `acknowledged`. Replies that state a status (`investigating`, `fix_in_progress`, `fix_delivered`) are chosen only when the question says so. In the example above, the question gives no start time, so the draft asks for details. Assist makes one LLM call.
 
 **When nothing relevant is found** (no search hits, the model says so, or no citation survives the guardrail), the response has `insufficient_context: true`, no Incidents, and next steps and a draft that ask for more information.
+
+### Validating the Customer Reply
+
+These questions exercise each Customer Reply. The "Observed" column is from a live run against the generated dataset with `gpt-6-luna`. The model makes the choice, so other models or prompt changes may differ. Treat a different result as something to investigate, not necessarily a bug.
+
+| # | Body | Expected `customer_reply` | Observed (cited) |
+| --- | --- | --- | --- |
+| 1 | `{"question": "why can't I log in?", "service": "auth", "severity": "SEV1"}` | `request_details`: no error, time or scale given | `request_details` (258) |
+| 2 | `{"question": "why can't I log in?"}` | `request_details` | `request_details` (281) |
+| 3 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am", "environment": "prod"}` | `acknowledged`: nothing says anyone is investigating yet | `acknowledged` (258) |
+| 4 | `{"question": "Hourly employees' overtime was calculated at the wrong rate in this week's payroll run"}` | `acknowledged` | `acknowledged` (241) |
+| 5 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am; the auth team is looking into it now", "environment": "prod"}` | `investigating` | `investigating` (258) |
+| 6 | `{"question": "SSO invalid assertion errors again; we found the expired signing certificate and are rotating it now"}` | `fix_in_progress` | `fix_in_progress` (281) |
+| 7 | `{"question": "Customer reported SSO invalid assertion errors yesterday; we rotated the expired certificate this morning and the fix is deployed"}` | `fix_delivered` | `fix_delivered` (281) |
+| 8 | `{"question": "Overtime rates were wrong in payroll; the corrected calculation shipped in today's release"}` | `fix_delivered` | `fix_delivered` (241) |
+
+The response contains the draft text, not the reply name. The `draft` log line records the choice under the request's correlation ID, for example `{"step": "draft", "customer_reply": "fix_in_progress", "source": "template", ...}`. If the server's output is saved to `server.log`, this loop sends the eight questions as `qa-1` to `qa-8` and prints the reply chosen for each one:
+
+```bash
+uv run start > server.log 2>&1 &   # with data ingested
+
+n=0
+while IFS= read -r body; do
+  n=$((n+1))
+  curl -s -o /dev/null -X POST http://localhost:8000/assist \
+    -H 'Content-Type: application/json' -H "X-Correlation-ID: qa-$n" -d "$body"
+done <<'EOF'
+{"question": "why can't I log in?", "service": "auth", "severity": "SEV1"}
+{"question": "why can't I log in?"}
+{"question": "Customers report SSO login fails with an invalid assertion error since 9am", "environment": "prod"}
+{"question": "Hourly employees' overtime was calculated at the wrong rate in this week's payroll run"}
+{"question": "Customers report SSO login fails with an invalid assertion error since 9am; the auth team is looking into it now", "environment": "prod"}
+{"question": "SSO invalid assertion errors again; we found the expired signing certificate and are rotating it now"}
+{"question": "Customer reported SSO invalid assertion errors yesterday; we rotated the expired certificate this morning and the fix is deployed"}
+{"question": "Overtime rates were wrong in payroll; the corrected calculation shipped in today's release"}
+EOF
+
+grep '"step": "draft"' server.log | grep -o '"customer_reply": "[a-z_]*".*"correlation_id": "qa-[0-9]"'
+```
+
+Each assist makes one LLM call, so the loop makes eight.
 
 ### Troubleshooting assist
 

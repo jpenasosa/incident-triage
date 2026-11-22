@@ -44,27 +44,14 @@ class Severity(StrEnum):
 MAX_INCIDENT_ID = 2**63 - 1  # SQLite's largest integer
 
 
-class CustomerStatus(StrEnum):
-    """Customer-safe incident status (GLOSSARY.md)."""
+class CustomerReply(StrEnum):
+    """Which prepared Customer Draft fits the engineer's question (GLOSSARY.md)."""
 
+    REQUEST_DETAILS = "request_details"
+    ACKNOWLEDGED = "acknowledged"
     INVESTIGATING = "investigating"
-    IDENTIFIED = "identified"
-    MITIGATED = "mitigated"
-    RESOLVED = "resolved"
-
-
-class ImpactCategory(StrEnum):
-    """Customer-safe description of what a problem affects (GLOSSARY.md)."""
-
-    LOGIN_ACCESS = "login_access"
-    PAY_CALCULATION = "pay_calculation"
-    TIME_TRACKING = "time_tracking"
-    DATA_DELAY = "data_delay"
-    NOTIFICATION_DELIVERY = "notification_delivery"
-    REPORT_GENERATION = "report_generation"
-    INTEGRATION_SYNC = "integration_sync"
-    PERFORMANCE = "performance"
-    OTHER = "other"
+    FIX_IN_PROGRESS = "fix_in_progress"
+    FIX_DELIVERED = "fix_delivered"
 
 
 IncidentId = Annotated[int, Field(strict=True, gt=0, le=MAX_INCIDENT_ID)]
