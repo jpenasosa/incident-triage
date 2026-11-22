@@ -141,3 +141,72 @@ def build_next_steps(cited_records: Sequence[Incident]) -> list[str]:
             seen.add(record.resolution_summary)
             steps.append(f"Incident {record.id} was resolved by: {record.resolution_summary}")
     return steps + STANDARD_NEXT_STEPS
+
+
+# --- Customer Draft (call 2, ADR 0003) ---------------------------------------------------
+
+DRAFT_SYSTEM_PROMPT = """\
+You write a short, friendly reply that a support engineer can send to a customer who
+reported a problem. You receive only the problem's status, impact category, whether the
+customer needs to act, and summaries of related past incidents.
+
+Rules:
+- At most 120 words, plain text, no headings or lists.
+- Base every statement on the context provided. Do not promise timelines or fixes.
+- Do not mention internal systems, hostnames, IP addresses, email addresses, ticket or
+  incident numbers, or people.
+- If customer_action_needed is true, ask the customer to confirm details or retry as
+  appropriate; otherwise tell them no action is needed from them.
+"""
+
+INSUFFICIENT_CUSTOMER_DRAFT = (
+    "Thank you for reaching out. To help us investigate, could you tell us which part of "
+    "the product is affected, when the problem started, the exact error message you see, "
+    "and roughly how many users are affected?"
+)
+SAFE_CUSTOMER_DRAFT = (
+    "Thank you for reporting this. Our team is looking into it and will follow up with an "
+    "update as soon as we have more information."
+)
+
+# Backstop: patterns that look like Internal Identifiers. A match replaces the draft.
+_INTERNAL_IDENTIFIER_PATTERNS = {
+    "url": re.compile(r"https?://", re.IGNORECASE),
+    "email": re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    "ip_address": re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"),
+    "hostname": re.compile(
+        r"\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|dev|cloud|internal|local|corp|lan)\b",
+        re.IGNORECASE,
+    ),
+}
+
+
+class CustomerDraft(BaseModel):
+    """Structured output of the Customer Draft call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    draft: str
+
+
+def build_draft_context(analysis: TriageAnalysis, cited_records: Sequence[Incident]) -> str:
+    """The only input the draft call sees (ADR 0003): customer-safe enums plus allowlisted
+    fields of the Cited Incidents. No ids, no engineer question, no uncited Candidates."""
+    context = {
+        "customer_status": analysis.customer_status.value,
+        "impact_category": analysis.impact_category.value,
+        "customer_action_needed": analysis.customer_action_needed,
+        "related_past_incidents": [
+            r.model_dump(
+                mode="json",
+                include={"service", "severity", "title", "description", "resolution_summary"},
+            )
+            for r in cited_records
+        ],
+    }
+    return json.dumps(context, indent=1)
+
+
+def internal_identifier_matches(text: str) -> list[str]:
+    """Names of the Internal Identifier patterns found in `text` (empty if clean)."""
+    return [name for name, pattern in _INTERNAL_IDENTIFIER_PATTERNS.items() if pattern.search(text)]

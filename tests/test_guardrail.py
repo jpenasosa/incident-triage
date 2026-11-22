@@ -9,6 +9,7 @@ from incident_triage.assist import (
     build_next_steps,
     dedupe_by_title,
     evidence_is_verbatim,
+    internal_identifier_matches,
 )
 
 SSO = make_incident(
@@ -111,3 +112,18 @@ def test_dedupe_keeps_best_ranked_per_title():
     ]
 
     assert [c.id for c in dedupe_by_title(candidates)] == [3, 2]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("We restarted db-prod-03.internal.", ["hostname"]),
+        ("Server 10.0.0.12 was patched.", ["ip_address"]),
+        ("Email ops@corp.example.com", ["email", "hostname"]),
+        ("Details at http://intranet/page", ["url"]),
+        ("Our team rotated an expired certificate and logins are working again.", []),
+        ("Version 2.3 shipped; about 1.5x overtime was corrected.", []),  # no false positives
+    ],
+)
+def test_internal_identifier_backstop(text, expected):
+    assert internal_identifier_matches(text) == expected

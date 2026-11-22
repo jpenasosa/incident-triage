@@ -4,10 +4,17 @@ import json
 
 import pytest
 from factories import make_analysis as analysis
-from factories import make_incident, make_result
+from factories import make_draft, make_incident, make_result
 from fakes import FakeIncidentRepository, FakeLLMClient
 
-from incident_triage.assist import INSUFFICIENT_NEXT_STEPS, STANDARD_NEXT_STEPS, TriageAnalysis
+from incident_triage.assist import (
+    INSUFFICIENT_CUSTOMER_DRAFT,
+    INSUFFICIENT_NEXT_STEPS,
+    SAFE_CUSTOMER_DRAFT,
+    STANDARD_NEXT_STEPS,
+    CustomerDraft,
+    TriageAnalysis,
+)
 from incident_triage.llm import AssistUnavailable
 from incident_triage.models import AssistRequest
 from incident_triage.service import IncidentService
@@ -51,11 +58,12 @@ def test_zero_candidates_returns_insufficient_without_calling_the_llm():
 
     assert result.insufficient_context is True
     assert result.next_steps == INSUFFICIENT_NEXT_STEPS
+    assert result.customer_draft == INSUFFICIENT_CUSTOMER_DRAFT
     assert llm.calls == []
 
 
 def test_llm_sees_question_and_full_records_of_deduplicated_candidates():
-    llm = FakeLLMClient(analysis((1, SSO_EVIDENCE)))
+    llm = FakeLLMClient(analysis((1, SSO_EVIDENCE)), make_draft())
 
     run(llm)
 
@@ -68,7 +76,7 @@ def test_llm_sees_question_and_full_records_of_deduplicated_candidates():
 
 
 def test_response_contains_only_stored_or_verified_text():
-    llm = FakeLLMClient(analysis((3, RESET_EVIDENCE), (1, SSO_EVIDENCE)))
+    llm = FakeLLMClient(analysis((3, RESET_EVIDENCE), (1, SSO_EVIDENCE)), make_draft("All good."))
 
     result = run(llm)
 
@@ -81,6 +89,7 @@ def test_response_contains_only_stored_or_verified_text():
         "Incident 1 was resolved by: Rotated the expired signing certificate.",
         *STANDARD_NEXT_STEPS,
     ]
+    assert result.customer_draft == "All good."
     assert result.insufficient_context is False
 
 
@@ -92,7 +101,8 @@ def test_invented_unshown_and_unverifiable_citations_are_dropped(capsys):
             (2, SSO_EVIDENCE),
             (3, "caused by a DNS outage at the provider"),
             (1, SSO_EVIDENCE),
-        )
+        ),
+        make_draft(),
     )
 
     result = run(llm)
@@ -120,7 +130,7 @@ def test_model_reporting_insufficient_context_gives_insufficient_response():
 
 
 def test_assist_steps_are_logged_in_order(capsys):
-    run(FakeLLMClient(analysis((1, SSO_EVIDENCE))))
+    run(FakeLLMClient(analysis((1, SSO_EVIDENCE)), make_draft()))
 
     steps = [(e["step"], e.get("phase")) for e in logs(capsys) if e["event"] == "assist_step"]
     assert steps == [
@@ -128,9 +138,74 @@ def test_assist_steps_are_logged_in_order(capsys):
         ("tool:search", "output"),
         ("llm:analyze", "input"),
         ("guardrail", None),
+        ("llm:draft", "input"),
+        ("llm:draft", "output"),
     ]
 
 
 def test_llm_failure_propagates_as_assist_unavailable():
     with pytest.raises(AssistUnavailable):
         run(FakeLLMClient(AssistUnavailable("timed out")))
+
+
+# --- Customer Draft (call 2) ---------------------------------------------------------
+
+
+def test_draft_call_sees_only_the_allowlisted_context():
+    llm = FakeLLMClient(analysis((3, RESET_EVIDENCE)), make_draft())
+
+    run(llm)  # question "SSO broken"; 1 and 3 shown, only 3 cited
+
+    draft_call = llm.calls[1]
+    context = json.loads(draft_call["user"])
+    assert draft_call["output"] is CustomerDraft
+    assert set(context) == {
+        "customer_status",
+        "impact_category",
+        "customer_action_needed",
+        "related_past_incidents",
+    }
+    assert context["related_past_incidents"] == [
+        {
+            "service": "payroll",
+            "severity": "SEV2",
+            "title": "Password reset emails missing",
+            "description": "The payroll run did not complete in time.",
+            "resolution_summary": "Raised the email provider rate limit.",
+        }
+    ]
+    assert "SSO broken" not in draft_call["user"]  # no engineer question
+    assert "SSO login failing" not in draft_call["user"]  # no uncited Candidate
+    assert '"id"' not in draft_call["user"]  # no Incident ids
+
+
+@pytest.mark.parametrize(
+    "leaky",
+    [
+        "Please check db-prod-03.internal for the error.",
+        "The server at 10.2.3.4 has been restarted.",
+        "Contact oncall@acme-hr.com for help.",
+        "See https://status.example for updates.",
+    ],
+)
+def test_backstop_replaces_drafts_with_internal_identifiers(leaky, capsys):
+    result = run(FakeLLMClient(analysis((1, SSO_EVIDENCE)), make_draft(leaky)))
+
+    assert result.customer_draft == SAFE_CUSTOMER_DRAFT
+    assert any(e["event"] == "customer_draft_replaced" for e in logs(capsys))
+
+
+def test_insufficient_paths_never_call_the_draft_model():
+    llm = FakeLLMClient(analysis(insufficient=True))
+
+    result = run(llm)
+
+    assert len(llm.calls) == 1  # analysis only
+    assert result.customer_draft == INSUFFICIENT_CUSTOMER_DRAFT
+
+
+def test_draft_call_failure_propagates_as_assist_unavailable():
+    llm = FakeLLMClient(analysis((1, SSO_EVIDENCE)), AssistUnavailable("timed out"))
+
+    with pytest.raises(AssistUnavailable):
+        run(llm)

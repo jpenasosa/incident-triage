@@ -9,12 +9,18 @@ from pydantic import ValidationError
 
 from incident_triage.assist import (
     ANALYSIS_SYSTEM_PROMPT,
+    DRAFT_SYSTEM_PROMPT,
+    INSUFFICIENT_CUSTOMER_DRAFT,
     INSUFFICIENT_NEXT_STEPS,
+    SAFE_CUSTOMER_DRAFT,
+    CustomerDraft,
     TriageAnalysis,
     apply_guardrail,
     build_analysis_input,
+    build_draft_context,
     build_next_steps,
     dedupe_by_title,
+    internal_identifier_matches,
 )
 from incident_triage.errors import AppError, NotFoundError
 from incident_triage.llm import LLMClient
@@ -33,8 +39,6 @@ from incident_triage.repository import IncidentRepository
 MAX_INGEST_LINES = 1000
 MAX_REPORTED_ERRORS = 50
 CANDIDATE_LIMIT = 10
-# Replaced by the Customer Draft call in ticket 06, step 3.
-PENDING_CUSTOMER_DRAFT = "Customer draft is not implemented yet."
 
 log = structlog.get_logger()
 
@@ -141,7 +145,8 @@ class IncidentService:
             flagged = analysis.insufficient_context
             return self._insufficient("model_said_insufficient" if flagged else "none_verified")
 
-        # Everything below comes from stored records or verified quotes, not model prose.
+        cited_records = [by_id[c.id] for c in guarded.cited]
+        # Everything below except the draft comes from stored records or verified quotes.
         return AssistResponse(
             relevant_incidents=[
                 CitedIncident(
@@ -149,17 +154,32 @@ class IncidentService:
                 )
                 for c in guarded.cited
             ],
-            next_steps=build_next_steps([by_id[c.id] for c in guarded.cited]),
-            customer_draft=PENDING_CUSTOMER_DRAFT,
+            next_steps=build_next_steps(cited_records),
+            customer_draft=self._customer_draft(analysis, cited_records),
             insufficient_context=False,
         )
+
+    def _customer_draft(self, analysis: TriageAnalysis, cited_records: list[Incident]) -> str:
+        """Call 2 (ADR 0003): sees only the allowlisted context; backstop on the output."""
+        log.info("assist_step", step="llm:draft", phase="input", cited_count=len(cited_records))
+        draft = self._llm.complete(
+            system=DRAFT_SYSTEM_PROMPT,
+            user=build_draft_context(analysis, cited_records),
+            output=CustomerDraft,
+        ).draft
+        matches = internal_identifier_matches(draft)
+        log.info("assist_step", step="llm:draft", phase="output", backstop_matches=matches)
+        if matches:
+            log.warning("customer_draft_replaced", matches=matches)
+            return SAFE_CUSTOMER_DRAFT
+        return draft
 
     def _insufficient(self, reason: str) -> AssistResponse:
         log.info("assist_insufficient", reason=reason)
         return AssistResponse(
             relevant_incidents=[],
             next_steps=INSUFFICIENT_NEXT_STEPS,
-            customer_draft=PENDING_CUSTOMER_DRAFT,
+            customer_draft=INSUFFICIENT_CUSTOMER_DRAFT,
             insufficient_context=True,
         )
 

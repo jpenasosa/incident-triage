@@ -226,5 +226,10 @@ These are the prompts used with AI tools during the build, recorded as they were
   ```
 
   The result: verbatim evidence excerpts verified in code, and next steps built from stored resolutions (ADR 0005).
+* Commit 3 (`start commit 3`):
+  * Adds the Customer Draft call with the allowlisted context from `build_draft_context()`: customer-safe enums plus the Cited Incidents' allowlisted fields, with no ids, no question and no uncited Candidates.
+  * Adds `internal_identifier_matches()`, a backstop for hostnames, IPs, emails and URLs that falls back to a safe draft. The insufficient paths use a fixed draft with no second call.
+  * Adds README sections for Assist and Troubleshooting, and 13 new tests. A live run returned careful drafts with no identifiers.
+* Open question, recorded in TRADEOFFS: how strict the draft and next steps should be is a product decision. The draft is reviewed by an operator against the Cited Incidents.
 * What you kept: _(to fill in after review)_
 * What you changed manually (and why): _(to fill in after review)_

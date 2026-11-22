@@ -115,6 +115,63 @@ curl -s http://localhost:8000/incidents/42
 
 Incident ids are positive integers supplied by the ingested data. An unknown id returns 404 `NOT_FOUND`, and an id that isn't a positive 64-bit integer returns 422.
 
+## Assist
+
+`POST /assist` finds past Incidents relevant to a question, says why each one is relevant, suggests next steps and drafts a customer reply. It needs `LLM_API_KEY`.
+
+```bash
+curl -s -X POST http://localhost:8000/assist \
+  -H 'Content-Type: application/json' \
+  -H 'X-Correlation-ID: my-trace-1' \
+  -d '{"question": "Customers report SSO login fails with an invalid assertion error", "environment": "prod"}'
+```
+
+```json
+{"relevant_incidents": [{"id": 258, "title": "Users unable to log in via single sign-on",
+   "reason": "Record states: “SSO logins failed with an 'invalid assertion' error for 226 minutes.”"}],
+ "next_steps": ["Incident 258 was resolved by: An expired signing certificate was rotated. Added certificate expiry monitoring with a 30-day warning.",
+                "Confirm the affected service, environment and start time match the cited incidents.",
+                "Check for recent deployments or configuration changes in the affected service."],
+ "customer_draft": "We’re investigating the login access issue. No action is needed from you right now, and we’ll share an update when we have more information.",
+ "insufficient_context": false}
+```
+
+The body takes `question` (1–2000 characters, not blank) plus the same optional filters as search: `environment`, `service`, `severity` and `tags`.
+
+**How it works.** Each step is logged under the request's correlation ID:
+
+1. **`tool:search`:** the question runs through the same search as `GET /search`, returning the top 10 Candidates. Candidates with the same title are collapsed.
+2. **`llm:analyze`:** the LLM picks up to 5 relevant Incidents and quotes evidence from each one.
+3. **`guardrail`:** code drops any citation of an Incident the model wasn't shown, and any whose quote isn't in the stored record. `reason` is that verified quote, and `next_steps` quote the stored resolutions plus fixed steps (ADR 0005).
+4. **`llm:draft`:** a second LLM call writes `customer_draft` from customer-safe fields only (ADR 0003). It never sees Incident ids or the engineer's question. If the draft looks like it contains a hostname, IP, email or URL, it's replaced with a safe fixed reply.
+
+**When nothing relevant is found** (no search hits, the model says so, or no citation survives the guardrail), the response has `insufficient_context: true`, no Incidents, and next steps and a draft that ask for more information.
+
+### Troubleshooting assist
+
+Every assist failure returns the same response to API users:
+
+```json
+{"error": {"code": "ASSIST_UNAVAILABLE", "message": "Assist service is not accessible", "correlation_id": "…"}}
+```
+
+The cause is in the server log. Find the ERROR line `llm_call_failed` with the same `correlation_id`:
+
+```bash
+uv run start 2>&1 | grep '"llm_call_failed"'
+```
+
+| `cause` in the log | Fix |
+| --- | --- |
+| `LLM_API_KEY is not set` | Set `LLM_API_KEY` in `.env` and restart. Startup also logs the WARNING `llm_api_key_not_set`. |
+| `OpenAI rejected LLM_API_KEY (HTTP 401)` | Use a valid key and restart. |
+| `OpenAI returned HTTP 404` | `LLM_MODEL` is probably not a model your key can use. |
+| `OpenAI returned HTTP 429` | Rate limit or quota. Retry later or check billing. |
+| `timed out after 20.0s` | Raise `LLM_TIMEOUT_SECONDS` (maximum 120). |
+| `could not reach OpenAI` | Network or proxy problem. Check `LLM_BASE_URL` if you set it. |
+
+To see which Candidates were considered, run with `LOG_LEVEL=DEBUG` and look for `assist_candidates`.
+
 ## Errors
 
 Every error has the same shape:

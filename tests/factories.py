@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from incident_triage.assist import AnalysisCitation, TriageAnalysis
+from incident_triage.assist import AnalysisCitation, CustomerDraft, TriageAnalysis
 from incident_triage.models import Incident, SearchResult
 
 
@@ -51,3 +51,7 @@ def make_analysis(*citations: tuple[int, str], insufficient: bool = False) -> Tr
         impact_category="login_access",
         customer_action_needed=False,
     )
+
+
+def make_draft(text: str = "We are aware of the issue and our team is on it.") -> CustomerDraft:
+    return CustomerDraft(draft=text)

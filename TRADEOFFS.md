@@ -15,10 +15,11 @@ _This is a running log, updated with each ticket and finalised in ticket 08._
 - Ticket 03: `GET /incidents/{id}` returns the full record, a 404 in the standard shape for an unknown id, and a 422 for a malformed id
 - Ticket 04: `GET /search`. Ranked FTS5 search (BM25 with column weights) plus filters for environment, service, severity and tags (all tags must match), with pagination and a `total` count. User text is turned into quoted OR terms, so FTS5 syntax can't be injected.
 - Ticket 05: the LLM client (`llm.py`). It calls the OpenAI Responses API (`responses.parse`), which derives a strict JSON schema from the Pydantic output model and validates the reply against it. Requests send `store=False`. A live call has been confirmed (about 2s). The timeout and retries are bounded. Every failure becomes an opaque `ASSIST_UNAVAILABLE`, with the cause logged at ERROR. It isn't wired into an endpoint yet; that's ticket 06.
-- Ticket 06 (in progress):
+- Ticket 06:
   - `POST /assist` retrieves Candidates through `search()`, deduplicates them by title, and runs an internal LLM analysis over the full records.
   - A deterministic guardrail drops any citation of an Incident the model wasn't shown, or whose evidence isn't found word for word in the stored record. It falls back to a fixed "need more info" response when the model reports insufficient context or no valid citation remains, and zero Candidates means no LLM call at all.
-  - Every step is logged.
+  - A second LLM call writes the Customer Draft from allowlisted, customer-safe fields only (ADR 0003). A backstop replaces any draft that looks like it contains a hostname, IP, email or URL.
+  - Every step is logged, and the full pipeline has been confirmed against the real API (about 4.6s for both calls).
 - **Integer Incident ids:** the id is a caller-supplied positive integer stored as SQLite's `INTEGER PRIMARY KEY`, the rowid itself. That avoids the hidden unique index a `TEXT` key creates, and FTS rows share the id directly. The cost is that ids aren't recognisable in free text the way `INC-42` would be. So the Customer Draft backstop doesn't check for Incident IDs, because ordinary numbers like "42 employees" would trip it. ADR 0003's context isolation already keeps ids out of the draft.
 
 ## Not done

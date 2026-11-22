@@ -1,4 +1,4 @@
-from factories import incident_dict, ndjson
+from factories import incident_dict, make_draft, ndjson
 from factories import make_analysis as analysis
 from fakes import FakeLLMClient
 
@@ -8,7 +8,7 @@ NDJSON = {"Content-Type": "application/x-ndjson"}
 
 
 def test_assist_returns_cited_incidents(app, client):
-    app.state.llm = FakeLLMClient(analysis((1, "SSO login timeout")))
+    app.state.llm = FakeLLMClient(analysis((1, "SSO login timeout")), make_draft("Draft text."))
     client.post(
         "/ingest", content=ndjson(incident_dict(id=1, title="SSO login timeout")), headers=NDJSON
     )
@@ -20,6 +20,7 @@ def test_assist_returns_cited_incidents(app, client):
     assert body["relevant_incidents"] == [
         {"id": 1, "title": "SSO login timeout", "reason": "Record states: “SSO login timeout”"}
     ]
+    assert body["customer_draft"] == "Draft text."
     assert body["insufficient_context"] is False
 
 
