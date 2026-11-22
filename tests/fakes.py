@@ -46,7 +46,7 @@ class FakeLLMClient:
 
     def ensure_available(self):
         if not self._available:
-            raise AssistUnavailable("LLM_API_KEY is not set")
+            raise AssistUnavailable("llm_key_missing", "LLM_API_KEY is not set")
 
     def complete(self, *, system, user, output):
         self.calls.append({"system": system, "user": user, "output": output})

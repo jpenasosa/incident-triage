@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from incident_triage.config import Settings
-from incident_triage.llm import MAX_OUTPUT_TOKENS, AssistUnavailable, OpenAIClient
+from incident_triage.llm import MAX_OUTPUT_TOKENS, REASON_MESSAGES, AssistUnavailable, OpenAIClient
 
 
 class Answer(BaseModel):
@@ -103,7 +103,7 @@ def test_uses_responses_parse_with_the_output_model():
     )
 
 
-# --- failures: all opaque to users, actionable in logs ----------------------------------
+# --- failures: a fixed, actionable message per reason; the raw cause only in logs -------
 
 
 def test_missing_key_fails_fast_without_a_client(capsys):
@@ -113,36 +113,43 @@ def test_missing_key_fails_fast_without_a_client(capsys):
         client.complete(system="s", user="u", output=Answer)
 
     assert client._sdk is None
-    assert exc.value.message == "Assist service is not accessible"
+    assert exc.value.reason == "llm_key_missing"
+    assert "LLM_API_KEY" in exc.value.message and "uv run start" in exc.value.message
     assert "LLM_API_KEY is not set" in exc.value.cause
     log = json.loads(capsys.readouterr().out.splitlines()[-1])
     assert (log["event"], log["level"]) == ("llm_call_failed", "error")
+    assert log["reason"] == "llm_key_missing"
 
 
 @pytest.mark.parametrize(
-    ("error", "cause_fragment"),
+    ("error", "reason", "cause_fragment"),
     [
-        (openai.APITimeoutError(request=REQUEST), "timed out after 20.0s"),
-        (status_error(openai.AuthenticationError, 401), "rejected LLM_API_KEY"),
-        (status_error(openai.PermissionDeniedError, 403), "rejected LLM_API_KEY"),
-        (status_error(openai.RateLimitError, 429), "HTTP 429"),
-        (status_error(openai.InternalServerError, 500), "HTTP 500"),
-        (status_error(openai.BadRequestError, 400), "HTTP 400"),
-        (openai.APIConnectionError(request=REQUEST), "could not reach OpenAI"),
+        (openai.APITimeoutError(request=REQUEST), "llm_timeout", "timed out after 20.0s"),
+        (status_error(openai.AuthenticationError, 401), "llm_key_rejected", "rejected"),
+        (status_error(openai.PermissionDeniedError, 403), "llm_key_rejected", "rejected"),
+        (status_error(openai.NotFoundError, 404), "llm_model_unknown", "HTTP 404"),
+        (status_error(openai.RateLimitError, 429), "llm_rate_limited", "HTTP 429"),
+        (status_error(openai.InternalServerError, 500), "llm_upstream_error", "HTTP 500"),
+        (status_error(openai.BadRequestError, 400), "llm_upstream_error", "HTTP 400"),
+        (openai.APIConnectionError(request=REQUEST), "llm_upstream_error", "could not reach"),
         (
             openai.APIResponseValidationError(
                 response=httpx2.Response(200, request=REQUEST), body=None
             ),
+            "llm_upstream_error",
             "failed SDK validation (HTTP 200)",
         ),
-        (openai.OpenAIError("anything else"), "unexpected SDK error: OpenAIError"),
-        (validation_error(), "did not match Answer"),
+        (openai.OpenAIError("anything else"), "llm_upstream_error", "unexpected SDK error"),
+        (validation_error(), "llm_upstream_error", "did not match Answer"),
     ],
 )
-def test_errors_map_to_assist_unavailable(error, cause_fragment):
+def test_errors_map_to_reasons(error, reason, cause_fragment):
     with pytest.raises(AssistUnavailable) as exc:
         call(stub_sdk(error))
 
+    assert exc.value.reason == reason
+    assert exc.value.message == REASON_MESSAGES[reason]
+    assert exc.value.details == [{"reason": reason}]
     assert cause_fragment in exc.value.cause
     assert exc.value.status_code == 503
 
@@ -162,16 +169,26 @@ def test_unusable_responses_map_to_assist_unavailable(response, cause_fragment):
     with pytest.raises(AssistUnavailable) as exc:
         call(stub_sdk(response))
 
+    assert exc.value.reason == "llm_upstream_error"
     assert cause_fragment in exc.value.cause
 
 
-def test_error_body_does_not_leak_the_cause(client, app):
+@pytest.mark.parametrize("reason", sorted(REASON_MESSAGES))
+def test_error_body_has_the_fix_but_not_the_cause(client, app, reason):
+    secret_cause = "provider said: Incorrect API key provided: sk-proj-abc123"
+
     @app.get("/_test/llm")
     def _llm():
-        raise AssistUnavailable("LLM_API_KEY is not set")
+        raise AssistUnavailable(reason, secret_cause)
 
     body = client.get("/_test/llm").json()["error"]
 
     assert body["code"] == "ASSIST_UNAVAILABLE"
-    assert body["message"] == "Assist service is not accessible"
-    assert "LLM_API_KEY" not in json.dumps(body)
+    assert body["message"] == REASON_MESSAGES[reason]
+    assert body["details"] == [{"reason": reason}]
+    assert "sk-proj" not in json.dumps(body) and "provider said" not in json.dumps(body)
+
+
+def test_every_message_says_what_to_do():
+    for reason, message in REASON_MESSAGES.items():
+        assert any(w in message for w in ("Set ", "Retry", "retry")), reason

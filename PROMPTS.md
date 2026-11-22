@@ -243,3 +243,46 @@ These are the prompts used with AI tools during the build, recorded as they were
   ```
 * What you kept: _(to fill in after review)_
 * What you changed manually (and why): _(to fill in after review)_
+
+---
+
+**Prompt #9**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Re-check the implementation against the brief before the final docs pass, and act on an external review's findings.
+* Prompt (copy/paste):
+
+  ```
+  Before moving on to ticket 08, I'm re-reading the assignment and I believe that the intention for
+  the /assist endpoint was to make the `search` functionality used by `/search` into a function call,
+  rather than a structured response. Please review the requirements and suggest changes to ensure the
+  requirements align with the implementation.
+  ```
+* Result summary:
+  * The AI compared each requirement with the code and flagged two gaps:
+    * Retrieval wasn't model-driven, so it proposed tool calling with `search_incidents`.
+    * The opaque 503 didn't meet "return a clear error explaining what to set and how to run it".
+  * Three tickets came out of this and the review: 09 (tool calling), 10 (actionable errors) and 11 (templated Customer Draft, closing review finding 1).
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  I also had a reviewer run against `main` and it returned with the findings found in
+  `.scratch/incident-triage/review-findings.md` please take a look and see if we need additional
+  tickets to address these findings.
+  ```
+
+  ```
+  I'm re-thinking ticket 11. [...] I am wondering if we can refine the instructions on the
+  `customer_draft` to ensure that the draft itself is not talking about the the incident itself but
+  rather focuses on one of the following:
+  - request additional details
+  - inform customers that a fix has been delivered or is being worked on
+  - inform customers that the issue is being investigated and we will get back to them
+  On the other hand these cases are narrow enough that we could use prepared templates instead of an
+  LLM call. It would also make the response more deterministic which is helpful for testing.
+  ```
+* What you kept: the requirement-by-requirement gap list and the ticket split. Ticket 10 (actionable errors) is implemented as proposed.
+* What you changed manually (and why):
+  * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The four coarse templates are accepted as prototype scope.
+  * Kept 1–5 citations instead of padding to 3.
+  * Skipped ticket 07 for time.

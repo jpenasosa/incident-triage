@@ -149,26 +149,26 @@ The body takes `question` (1–2000 characters, not blank) plus the same optiona
 
 ### Troubleshooting assist
 
-Every assist failure returns the same response to API users:
+A failed assist call returns 503 `ASSIST_UNAVAILABLE`. The message says what to set or do, and `details` gives a machine-readable `reason`. For example, without `LLM_API_KEY`:
 
 ```json
-{"error": {"code": "ASSIST_UNAVAILABLE", "message": "Assist service is not accessible", "correlation_id": "…"}}
+{"error":{"code":"ASSIST_UNAVAILABLE","message":"Assist needs an OpenAI API key. Set LLM_API_KEY in .env and restart the server with `uv run start`.","correlation_id":"t10-check","details":[{"reason":"llm_key_missing"}]}}
 ```
 
-The cause is in the server log. Find the ERROR line `llm_call_failed` with the same `correlation_id`:
+| `reason` | Typical cause | Fix |
+| --- | --- | --- |
+| `llm_key_missing` | `LLM_API_KEY` not set. Startup also logs the WARNING `llm_api_key_not_set`. | Set `LLM_API_KEY` in `.env` and restart. |
+| `llm_key_rejected` | OpenAI returned 401 or 403. | Set a valid key and restart. |
+| `llm_model_unknown` | OpenAI returned 404. | Set `LLM_MODEL` to a model your key can use (check `LLM_BASE_URL` if set) and restart. |
+| `llm_timeout` | No reply within `LLM_TIMEOUT_SECONDS`. | Retry, or raise `LLM_TIMEOUT_SECONDS` (maximum 120) and restart. |
+| `llm_rate_limited` | OpenAI returned 429. | Retry later. Check usage limits and billing. |
+| `llm_upstream_error` | 5xx or other HTTP errors, network failures, or unusable output. | Retry later, then check `LLM_BASE_URL` and the server log. |
+
+The response never includes the provider's error text. The exact cause is in the server log. Find the ERROR line `llm_call_failed` with the same `correlation_id`:
 
 ```bash
 uv run start 2>&1 | grep '"llm_call_failed"'
 ```
-
-| `cause` in the log | Fix |
-| --- | --- |
-| `LLM_API_KEY is not set` | Set `LLM_API_KEY` in `.env` and restart. Startup also logs the WARNING `llm_api_key_not_set`. |
-| `OpenAI rejected LLM_API_KEY (HTTP 401)` | Use a valid key and restart. |
-| `OpenAI returned HTTP 404` | `LLM_MODEL` is probably not a model your key can use. |
-| `OpenAI returned HTTP 429` | Rate limit or quota. Retry later or check billing. |
-| `timed out after 20.0s` | Raise `LLM_TIMEOUT_SECONDS` (maximum 120). |
-| `could not reach OpenAI` | Network or proxy problem. Check `LLM_BASE_URL` if you set it. |
 
 To see which Candidates were considered, run with `LOG_LEVEL=DEBUG` and look for `assist_candidates`.
 

@@ -25,13 +25,15 @@ def test_assist_returns_cited_incidents(app, client):
 
 
 def test_llm_error_is_503(app, client):
-    app.state.llm = FakeLLMClient(AssistUnavailable("timed out after 20.0s"))
+    app.state.llm = FakeLLMClient(AssistUnavailable("llm_timeout", "timed out after 20.0s"))
     client.post("/ingest", content=ndjson(incident_dict(id=1, title="SSO")), headers=NDJSON)
 
     resp = client.post("/assist", json={"question": "sso"})
 
     assert resp.status_code == 503
-    assert "timed out" not in resp.text
+    assert resp.json()["error"]["details"] == [{"reason": "llm_timeout"}]
+    assert "LLM_TIMEOUT_SECONDS" in resp.json()["error"]["message"]
+    assert "timed out after 20.0s" not in resp.text  # the raw cause stays in the logs
 
 
 def test_assist_without_key_is_503(client):  # the default test settings have no LLM_API_KEY
@@ -39,7 +41,8 @@ def test_assist_without_key_is_503(client):  # the default test settings have no
 
     assert resp.status_code == 503
     assert resp.json()["error"]["code"] == "ASSIST_UNAVAILABLE"
-    assert resp.json()["error"]["message"] == "Assist service is not accessible"
+    assert resp.json()["error"]["details"] == [{"reason": "llm_key_missing"}]
+    assert "LLM_API_KEY" in resp.json()["error"]["message"]
 
 
 def test_invalid_assist_requests_are_422(app, client):
