@@ -194,3 +194,52 @@ These are the prompts used with AI tools during the build, recorded as they were
   requirement that invalid output raise AssistUnavailable and return a 503. Handle an empty choices
   list explicitly. Consider also mapping SDK response-validation errors to AssistUnavailable.
   ```
+
+---
+
+**Prompt #8**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Plan the largest ticket (06, `POST /assist`) as focused commits, starting with Candidate retrieval.
+* Prompt (copy/paste):
+
+  ```
+  Since this is the larget ticket, let's split it up the current ticket into multiple focused commits.
+  1. candidate retrieval with a canned response at the API layer. We can use INFO and DEBUG level statements to verify results.
+  2. Customer facing draft response based on the cited incidents
+  ```
+* Result summary:
+  * The AI pointed out that the split was missing a step: the internal LLM call and guardrail validator that produce the Cited Incidents step 2 depends on. We agreed on 3 commits in one PR.
+  * Commit 1 adds `IncidentService.find_candidates()`, which uses the same `search()` path, logs `tool:search` input and output at INFO and Candidate details at DEBUG, and fails fast when there's no key.
+  * It also adds a canned `POST /assist` response, one `OpenAIClient` per app injected into the service, and 7 tests.
+  * Commit 2 adds the internal analysis call (`TriageAnalysis`, a strict schema) over the full Candidate records, deduplicated by title.
+  * It also adds `apply_guardrail()`, a pure function that drops citations of Incidents the model wasn't shown, collapses duplicates and caps at 5. The insufficient paths are zero Candidates (no LLM call), the model's own flag, and no valid citations left. Generator templates are tagged with an Impact Category, and there are 15 new tests.
+  * A live run cited the right SSO Incident in 4.2s and correctly reported insufficient context for an unrelated question.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  Finding — [P2] The guardrail checks cited IDs, but not factual claims in the response
+  The API returns the model's free-text reason and next_steps directly. apply_guardrail() verifies
+  that cited IDs were shown, but it cannot prevent the model from adding unsupported incident details
+  to those fields. [...] Ground the returned text in verifiable evidence, or use safe, fixed next
+  steps where claims cannot be checked.
+  ```
+
+  The result: verbatim evidence excerpts verified in code, and next steps built from stored resolutions (ADR 0005).
+* Commit 3 (`start commit 3`):
+  * Adds the Customer Draft call with the allowlisted context from `build_draft_context()`: customer-safe enums plus the Cited Incidents' allowlisted fields, with no ids, no question and no uncited Candidates.
+  * Adds `internal_identifier_matches()`, a backstop for hostnames, IPs, emails and URLs that falls back to a safe draft. The insufficient paths use a fixed draft with no second call.
+  * Adds README sections for Assist and Troubleshooting, and 13 new tests. A live run returned careful drafts with no identifiers.
+* Open question, recorded in TRADEOFFS: how strict the draft and next steps should be is a product decision. The draft is reviewed by an operator against the Cited Incidents.
+* Follow-up review: added a check for the 120-word limit (the prompt alone didn't enforce it), broadened hostname detection beyond a fixed list of suffixes, and moved IP detection to `ipaddress`, which also covers IPv6. A rejected draft is replaced with the safe draft, and the reasons are logged.
+
+  ```
+  - The prompt requests at most 120 words, but CustomerDraft.draft has no length constraint and the
+    returned text is not checked. [...] Validate the word count and use the safe canned draft when it
+    exceeds the limit.
+  - The hostname regex only recognizes a fixed list of suffixes, so it misses addresses such as
+    status.example.ca and intranet.example.uk. The IP check covers IPv4 only [...] consider using
+    broader hostname detection and Python's ipaddress module for IP literals.
+  ```
+* What you kept: _(to fill in after review)_
+* What you changed manually (and why): _(to fill in after review)_

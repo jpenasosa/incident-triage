@@ -1,5 +1,5 @@
 import pytest
-from fakes import FakeIncidentRepository
+from fakes import FakeIncidentRepository, FakeLLMClient
 
 from incident_triage.errors import AppError
 from incident_triage.models import SearchQuery
@@ -9,7 +9,7 @@ from incident_triage.service import IncidentService
 @pytest.mark.parametrize("query", [SearchQuery(), SearchQuery(q="   ")])
 def test_requires_text_or_a_filter(query):
     with pytest.raises(AppError) as exc:
-        IncidentService(FakeIncidentRepository()).search(query)
+        IncidentService(FakeIncidentRepository(), FakeLLMClient()).search(query)
 
     assert exc.value.status_code == 400
 
@@ -18,6 +18,6 @@ def test_requires_text_or_a_filter(query):
 def test_text_or_filter_alone_is_enough(query):
     repo = FakeIncidentRepository()
 
-    IncidentService(repo).search(query)
+    IncidentService(repo, FakeLLMClient()).search(query)
 
     assert repo.searched == query

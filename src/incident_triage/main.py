@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from incident_triage.config import Settings, load_settings
 from incident_triage.db import init_db
 from incident_triage.errors import register_error_handlers
+from incident_triage.llm import OpenAIClient
 from incident_triage.observability import CorrelationIdMiddleware, configure_logging
 from incident_triage.routes import router
 
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Incident Triage")
     app.state.settings = settings
+    app.state.llm = OpenAIClient(settings)
     app.add_middleware(CorrelationIdMiddleware)
     register_error_handlers(app)
     app.include_router(router)

@@ -1,6 +1,6 @@
 import pytest
 from factories import incident_dict, make_incident, ndjson
-from fakes import FakeIncidentRepository
+from fakes import FakeIncidentRepository, FakeLLMClient
 
 from incident_triage.errors import NotFoundError
 from incident_triage.service import IncidentService
@@ -10,13 +10,13 @@ NDJSON = {"Content-Type": "application/x-ndjson"}
 
 def test_service_returns_the_incident():
     incident = make_incident(id=1)
-    service = IncidentService(FakeIncidentRepository(incidents=[incident]))
+    service = IncidentService(FakeIncidentRepository(incidents=[incident]), FakeLLMClient())
 
     assert service.get_incident(1) == incident
 
 
 def test_service_raises_not_found_for_unknown_id():
-    service = IncidentService(FakeIncidentRepository())
+    service = IncidentService(FakeIncidentRepository(), FakeLLMClient())
 
     with pytest.raises(NotFoundError, match="Incident 404 not found"):
         service.get_incident(404)

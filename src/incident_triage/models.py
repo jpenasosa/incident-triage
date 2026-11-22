@@ -42,6 +42,31 @@ class Severity(StrEnum):
 
 # Caller-supplied, so ingest can match on it. Stored as SQLite's INTEGER PRIMARY KEY.
 MAX_INCIDENT_ID = 2**63 - 1  # SQLite's largest integer
+
+
+class CustomerStatus(StrEnum):
+    """Customer-safe incident status (GLOSSARY.md)."""
+
+    INVESTIGATING = "investigating"
+    IDENTIFIED = "identified"
+    MITIGATED = "mitigated"
+    RESOLVED = "resolved"
+
+
+class ImpactCategory(StrEnum):
+    """Customer-safe description of what a problem affects (GLOSSARY.md)."""
+
+    LOGIN_ACCESS = "login_access"
+    PAY_CALCULATION = "pay_calculation"
+    TIME_TRACKING = "time_tracking"
+    DATA_DELAY = "data_delay"
+    NOTIFICATION_DELIVERY = "notification_delivery"
+    REPORT_GENERATION = "report_generation"
+    INTEGRATION_SYNC = "integration_sync"
+    PERFORMANCE = "performance"
+    OTHER = "other"
+
+
 IncidentId = Annotated[int, Field(strict=True, gt=0, le=MAX_INCIDENT_ID)]
 
 
@@ -127,3 +152,31 @@ class SearchPage(BaseModel):
     limit: int
     offset: int
     results: list[SearchResult]
+
+
+# Stripped before the length checks, so a whitespace-only question is a 422 rather than a
+# silent filter-only search (SearchQuery treats a blank q as absent).
+Question = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+
+
+class AssistRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: Question
+    environment: Environment | None = None
+    service: Service | None = None
+    severity: Severity | None = None
+    tags: list[Tag] = Field(default=[], max_length=20)
+
+
+class CitedIncident(BaseModel):
+    id: int
+    title: str
+    reason: str
+
+
+class AssistResponse(BaseModel):
+    relevant_incidents: list[CitedIncident]
+    next_steps: list[str]
+    customer_draft: str
+    insufficient_context: bool
