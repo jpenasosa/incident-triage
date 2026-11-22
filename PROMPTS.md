@@ -81,6 +81,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   fast if `/assist` is called without the key set. `create_app` will log a warning if it
   is not set.
   ```
+* Link to code/commit: [PR #1](https://github.com/jpenasosa/incident-triage/pull/1)
 
 ---
 
@@ -97,8 +98,10 @@ These are the prompts used with AI tools during the build, recorded as they were
   * Built the `Incident` model with enums, a template and Faker generator (byte-identical across runs), and `SqliteIncidentRepository` (upsert, content hash, FTS5 kept in sync).
   * Added `IncidentService.ingest_ndjson` (atomic, errors per line, duplicate-id detection) and a thin async route that reads the body with a size cap and checks the content type.
   * Wrote 18 new tests and smoke-tested with the real dataset.
-* What you kept: _(to fill in after review)_
+* What you kept: the Incident model, the generator, the repository and the ingest service and route.
 * What you changed manually (and why):
+  * Added a module-level `logger` in `create_app()`, so the startup warning and info lines share it.
+  * Removed `data/incidents.jsonl` from git, because it's large and the generator recreates it on demand.
   * Moved connection handling into a dedicated `db.py` (a `connect()` context manager and `init_db()`) and the schema into `schema/*.sql` files, after review found a connection leak in `init_db`.
 * Any follow up prompt(s) (copy/paste if important):
 
@@ -112,6 +115,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   expose an `init_db` function which is called at app startup. The schema should move to a
   directory containing `.sql` files for table definitions
   ```
+* Link to code/commit: [PR #2](https://github.com/jpenasosa/incident-triage/pull/2)
 
 ---
 
@@ -125,7 +129,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   merged, let's move on to ticket 03
   ```
 * Result summary: Added `get` to the repository protocol and the SQLite implementation, `IncidentService.get_incident` (which raises `NotFoundError`), and a thin route. Wrote tests for the service (fake repository) and the API (round trip, 404 shape and 422).
-* What you kept: _(to fill in after review)_
+* What you kept: the repository method, the service and the route, and their tests.
 * What you changed manually (and why):
   * Switched Incident ids from `INC-00001` strings to strict positive integers stored as `INTEGER PRIMARY KEY`. The prefix added nothing, and a `TEXT` key costs a hidden unique index.
 * Any follow up prompt(s) (copy/paste if important):
@@ -137,6 +141,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   far more efficient to use sequential integers. At scale that prefix can add up. Why did you choose that
   pattern over a simple integer primary key?
   ```
+* Link to code/commit: [PR #3](https://github.com/jpenasosa/incident-triage/pull/3)
 
 ---
 
@@ -154,8 +159,9 @@ These are the prompts used with AI tools during the build, recorded as they were
   * Added `SqliteIncidentRepository.search` (weighted BM25, `snippet()`, filters, `json_each` for tags, a shared count) and `IncidentService.search` (400 when there's no `q` and no filter).
   * `SearchQuery` is used directly as FastAPI's query-parameter model.
   * Wrote 38 new tests and smoke-tested against the real dataset.
-* What you kept: _(to fill in after review)_
-* What you changed manually (and why): _(to fill in after review)_
+* What you kept: all of it. I reviewed the changes locally and merged them unchanged.
+* What you changed manually (and why): nothing.
+* Link to code/commit: [PR #4](https://github.com/jpenasosa/incident-triage/pull/4)
 
 ---
 
@@ -172,7 +178,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   * Built `OpenAICompatibleClient`: a provider-to-base-URL mapping with an `LLM_BASE_URL` override, `response_format` with a strict `json_schema` generated from the Pydantic output model, `max_completion_tokens=16000`, `max_retries=1`, and no sampling parameters.
   * Every SDK error, unusable output and missing key maps to `AssistUnavailable` (503) and is logged once at ERROR.
   * Added a fake client for ticket 06 and 18 tests that use a stub SDK.
-* What you kept: _(to fill in after review)_
+* What you kept: one `AssistUnavailable` domain error with the cause logged at ERROR, the fake client, and testing against a stubbed SDK.
 * What you changed manually (and why):
   * Replaced the hand-rolled `SimpleNamespace` SDK stub with `unittest.mock.MagicMock`. It's the standard tool, and `call_args` and `assert_called_once` replace custom recording code. Running the file alone then exposed a test that depended on order: it parsed JSON logs, which are only configured once `create_app()` has run. That was fixed with an autouse `configure_logging` fixture.
   * Added `google` (Gemini) as a third `LLM_PROVIDER`. That's one entry in the base-URL map, plus the config literal, a test and docs. The base URL was checked against Google's compatibility page. Its strict `json_schema` and `max_completion_tokens` support aren't documented there, so they're listed as unverified in `TRADEOFFS.md`.
@@ -194,6 +200,7 @@ These are the prompts used with AI tools during the build, recorded as they were
   requirement that invalid output raise AssistUnavailable and return a 503. Handle an empty choices
   list explicitly. Consider also mapping SDK response-validation errors to AssistUnavailable.
   ```
+* Link to code/commit: [PR #5](https://github.com/jpenasosa/incident-triage/pull/5)
 
 ---
 
@@ -241,15 +248,19 @@ These are the prompts used with AI tools during the build, recorded as they were
     status.example.ca and intranet.example.uk. The IP check covers IPv4 only [...] consider using
     broader hostname detection and Python's ipaddress module for IP literals.
   ```
-* What you kept: _(to fill in after review)_
-* What you changed manually (and why): _(to fill in after review)_
+* What you kept: the three-commit split, retrieval through the shared `search()` path, the evidence-verified guardrail and the code-built next steps.
+* What you changed manually (and why):
+  * Asked for Candidates to be deduplicated by title, because the synthetic data repeats titles.
+  * Flagged that a whitespace-only question passed validation. It's now stripped before the length check.
+  * Deferred how strict the draft should be as a product question. I reversed that in ticket 11, after the external review.
+* Link to code/commit: [PR #6](https://github.com/jpenasosa/incident-triage/pull/6)
 
 ---
 
 **Prompt #9**
 
 * Tool used: Claude Code (Claude Opus 5.5)
-* Goal: Re-check the implementation against the brief before the final docs pass, and act on an external review's findings.
+* Goal: Re-check the implementation against the brief before the final docs pass, act on an external review's findings, and redesign the Customer Draft (ticket 11).
 * Prompt (copy/paste):
 
   ```
@@ -263,6 +274,7 @@ These are the prompts used with AI tools during the build, recorded as they were
     * Retrieval wasn't model-driven, so it proposed tool calling with `search_incidents`.
     * The opaque 503 didn't meet "return a clear error explaining what to set and how to run it".
   * Three tickets came out of this and the review: 09 (tool calling), 10 (actionable errors) and 11 (templated Customer Draft, closing review finding 1).
+  * For ticket 11, the AI recommended templates over tighter instructions, because a prompt alone can't enforce anything. It also flagged that a past incident's resolution says nothing about whether *this* customer's problem is fixed, so the status replies are allowed only when the question says so. This removed the second LLM call, the allowlist and the identifier backstop, about 220 lines in all (ADR 0006).
 * Any follow up prompt(s) (copy/paste if important):
 
   ```
@@ -281,43 +293,14 @@ These are the prompts used with AI tools during the build, recorded as they were
   On the other hand these cases are narrow enough that we could use prepared templates instead of an
   LLM call. It would also make the response more deterministic which is helpful for testing.
   ```
-* What you kept: the requirement-by-requirement gap list and the ticket split. Ticket 10 (actionable errors) is implemented as proposed.
-* What you changed manually (and why):
-  * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The coarse templates are accepted as prototype scope.
-  * Kept 1–5 citations instead of padding to 3.
-  * Skipped ticket 07 for time.
-
----
-
-**Prompt #10**
-
-* Tool used: Claude Code (Claude Opus 5.5)
-* Goal: Close review finding 1 (the Customer Draft could invent incident details) in ticket 11.
-* Prompt (copy/paste):
-
-  ```
-  I'm re-thinking ticket 11. The framing of the requirement is that incident details should not be
-  made up. I am wondering if we can refine the instructions on the `customer_draft` to ensure that
-  the draft itself is not talking about the the incident itself but rather focuses on one of the
-  following:
-  - request additional details
-  - inform customers that a fix has been delivered or is being worked on
-  - inform customers that the issue is being investigated and we will get back to them
-
-  On the other hand these cases are narrow enough that we could use prepared templates instead of
-  an LLM call. It would also make the response more deterministic which is helpful for testing.
-  ```
-* Result summary:
-  * The AI recommended templates over tighter instructions, because a prompt alone can't enforce anything. It also flagged that a past incident's resolution says nothing about whether *this* customer's problem is fixed. So the fix replies are allowed only when the question says so, with `investigating` as the default.
-  * Implementation (ADR 0006): `customer_reply` replaces the three draft enums. This removed the second LLM call, the allowlist and the identifier backstop, about 220 lines in all. A live run picked `investigating` and `fix_in_progress` correctly.
-* Any follow up prompt(s) (copy/paste if important):
 
   ```
   The narrower templates are fine for a prototype which we can consider to be the case for this
   project. For a production application we could expand templates to be more granular, we don't
   need to worry about that here.
   ```
-* PR review follow-up:
+
+  PR review of ticket 11:
 
   ```
   Finding — [P2] The default Customer Reply can claim an investigation is underway without evidence
@@ -326,13 +309,18 @@ These are the prompts used with AI tools during the build, recorded as they were
   default, and use the investigating template only when the input confirms investigation is underway.
   ```
 
-  The result: a neutral `acknowledged` default, and `investigating` now gets the same "only if the question says so" rule as the fix replies. An 8-question live run gave the expected reply for every question.
-* What you kept: the templates (five after review), the status-claim rule, and removing the backstop and the draft call.
-* What you changed manually (and why): _(to fill in after review)_
+  The result: a neutral `acknowledged` default, and `investigating` gets the same "only if the question says so" rule as the fix replies.
+* What you kept: the requirement-by-requirement gap list and the ticket split. Ticket 10 (actionable errors) is implemented as proposed. For the draft, the five templates and the status-claim rule.
+* What you changed manually (and why):
+  * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The coarse templates are accepted as prototype scope.
+  * Kept 1–5 citations instead of padding to 3.
+  * Skipped ticket 07 for time.
+  * Asked for the README QA questions, so the reply choice can be checked by hand.
+* Link to code/commit: [PR #7](https://github.com/jpenasosa/incident-triage/pull/7), [PR #8](https://github.com/jpenasosa/incident-triage/pull/8)
 
 ---
 
-**Prompt #11**
+**Prompt #10**
 
 * Tool used: Claude Code (Claude Opus 5.5)
 * Goal: Implement ticket 09, where the model retrieves Candidates through function calling instead of a fixed search.
@@ -366,4 +354,5 @@ These are the prompts used with AI tools during the build, recorded as they were
 
   The AI pointed out the same problem in `overridden`, which compared raw values, so `[" SSO "]` against `["sso"]` counted as an override. Overrides are now compared the way the search sees them: tags as a normalized set, so case, whitespace, order and duplicates don't matter.
 * What you kept: the explicit loop over the SDK's `max_tool_calls`, enforcing the engineer's filters, and the README QA table extended to retrieval cases.
-* What you changed manually (and why): _(to fill in after review)_
+* What you changed manually (and why): no hand edits. I steered through review: the normalized-logging finding, and asking for the `overridden` comparison to be fixed too.
+* Link to code/commit: [PR #9](https://github.com/jpenasosa/incident-triage/pull/9)

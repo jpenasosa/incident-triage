@@ -17,7 +17,7 @@ All configuration is through environment variables. A `.env` file in the repo ro
 | `LLM_API_KEY` | none | OpenAI API key. Only `/assist` needs it. Without it, a warning is logged at startup and `/assist` returns 503. |
 | `LLM_MODEL` | `gpt-6-luna` | OpenAI model id |
 | `LLM_BASE_URL` | `api.openai.com` | Optional: a proxy or Azure OpenAI endpoint |
-| `LLM_TIMEOUT_SECONDS` | `20` | |
+| `LLM_TIMEOUT_SECONDS` | `20` | Per LLM call, 1–120, with one retry. An assist makes 2–4 calls. |
 | `DB_PATH` | `data/incidents.db` | SQLite file. Delete it after schema changes (see [Database and schema changes](#database-and-schema-changes)) |
 | `PORT` | `8000` | |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR` |
@@ -87,14 +87,14 @@ curl -s -G http://localhost:8000/search --data-urlencode "q=timeout" \
 curl -s "http://localhost:8000/search?service=benefits&tags=enrollment&limit=5&offset=5"
 ```
 
-The response looks like this:
+The response looks like this (the first of 10 results shown):
 
 ```json
 {"total": 62, "limit": 10, "offset": 0,
- "results": [{"id": 17, "title": "Users unable to log in via single sign-on",
-              "snippet": "SSO logins failed with an 'invalid assertion' error…", "score": 7.786,
-              "service": "auth", "environment": "prod", "severity": "SEV2",
-              "created_at": "2026-01-19T10:19:20Z"}]}
+ "results": [{"id": 281, "title": "Users unable to log in via single sign-on",
+              "snippet": "SSO logins failed with an 'invalid assertion' error for 203 minutes. About 79% of login attempts were affected.",
+              "score": 7.785935897292315, "service": "auth", "environment": "dev", "severity": "SEV2",
+              "created_at": "2026-10-08T00:26:59Z"}, ...]}
 ```
 
 - **Ranking:** results match **any** word of `q`, ranked by BM25. A match in the title counts most (×3), then tags (×2), then description and resolution summary (×1). Equal scores are ordered newest first. `score` is higher for more relevant results and `null` for filter-only searches.
