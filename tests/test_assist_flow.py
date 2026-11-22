@@ -145,7 +145,7 @@ def test_assist_steps_are_logged_in_order(capsys):
 
 def test_llm_failure_propagates_as_assist_unavailable():
     with pytest.raises(AssistUnavailable):
-        run(FakeLLMClient(AssistUnavailable("timed out")))
+        run(FakeLLMClient(AssistUnavailable("llm_timeout", "timed out")))
 
 
 # --- Customer Draft (call 2) ---------------------------------------------------------
@@ -208,7 +208,7 @@ def test_insufficient_paths_never_call_the_draft_model():
 
 
 def test_draft_call_failure_propagates_as_assist_unavailable():
-    llm = FakeLLMClient(analysis((1, SSO_EVIDENCE)), AssistUnavailable("timed out"))
+    llm = FakeLLMClient(analysis((1, SSO_EVIDENCE)), AssistUnavailable("llm_timeout", "timed out"))
 
     with pytest.raises(AssistUnavailable):
         run(llm)
