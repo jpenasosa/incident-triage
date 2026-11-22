@@ -34,6 +34,14 @@ _Avoid_: Source, reference
 A short reply meant for the affected customer, built only from customer-safe values and never from Incident free text.
 _Avoid_: Response, customer message
 
+**Impact Category**:
+A customer-safe label for what a problem affects (for example login access, pay calculation or data delay), drawn from a fixed list.
+_Avoid_: Symptom, area
+
+**Customer Status**:
+A customer-safe label for where a problem stands: investigating, identified, mitigated or resolved.
+_Avoid_: State, phase
+
 **Internal Identifier**:
 Any value that must never reach a customer, such as an Incident ID, hostname, IP address, email address, or request ID.
 _Avoid_: PII (it is broader than personal data), secret

@@ -71,19 +71,9 @@ def search(query: Annotated[SearchQuery, Query()], service: ServiceDep) -> Searc
     return service.search(query)
 
 
-# Placeholder until LLM analysis lands (ticket 06, step 2). Candidates are in the logs.
-_CANNED_ASSIST = AssistResponse(
-    relevant_incidents=[],
-    next_steps=["Assist analysis is not implemented yet."],
-    customer_draft="",
-    insufficient_context=True,
-)
-
-
 @router.post("/assist")
 def assist(request: AssistRequest, service: ServiceDep) -> AssistResponse:
-    service.find_candidates(request)
-    return _CANNED_ASSIST
+    return service.assist(request)
 
 
 @router.get("/incidents/{incident_id}")

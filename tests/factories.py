@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+from incident_triage.assist import AnalysisCitation, TriageAnalysis
 from incident_triage.models import Incident, SearchResult
 
 
@@ -39,3 +40,14 @@ def make_result(id: int, **overrides: Any) -> SearchResult:
         "created_at": "2026-03-01T10:00:00Z",
     }
     return SearchResult.model_validate(data | overrides)
+
+
+def make_analysis(*citations: tuple[int, str], insufficient: bool = False) -> TriageAnalysis:
+    """`citations` are (incident id, evidence quote) pairs."""
+    return TriageAnalysis(
+        relevant_incidents=[AnalysisCitation(id=i, evidence=e) for i, e in citations],
+        insufficient_context=insufficient,
+        customer_status="identified",
+        impact_category="login_access",
+        customer_action_needed=False,
+    )

@@ -42,6 +42,31 @@ class Severity(StrEnum):
 
 # Caller-supplied, so ingest can match on it. Stored as SQLite's INTEGER PRIMARY KEY.
 MAX_INCIDENT_ID = 2**63 - 1  # SQLite's largest integer
+
+
+class CustomerStatus(StrEnum):
+    """Customer-safe incident status (GLOSSARY.md)."""
+
+    INVESTIGATING = "investigating"
+    IDENTIFIED = "identified"
+    MITIGATED = "mitigated"
+    RESOLVED = "resolved"
+
+
+class ImpactCategory(StrEnum):
+    """Customer-safe description of what a problem affects (GLOSSARY.md)."""
+
+    LOGIN_ACCESS = "login_access"
+    PAY_CALCULATION = "pay_calculation"
+    TIME_TRACKING = "time_tracking"
+    DATA_DELAY = "data_delay"
+    NOTIFICATION_DELIVERY = "notification_delivery"
+    REPORT_GENERATION = "report_generation"
+    INTEGRATION_SYNC = "integration_sync"
+    PERFORMANCE = "performance"
+    OTHER = "other"
+
+
 IncidentId = Annotated[int, Field(strict=True, gt=0, le=MAX_INCIDENT_ID)]
 
 

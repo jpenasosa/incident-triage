@@ -24,6 +24,8 @@
 9. **Rounding hid every score.** The AI rounded BM25 scores to 4 decimals. In a small test corpus, FTS5's IDF is clamped to almost zero, so every score showed `0.0` and the ranking test failed. The test caught it, and the fix keeps full precision. Ordering was never affected.
 10. **The error mapping had gaps around the edges.** The LLM client mapped every SDK error it listed to a 503, but two paths escaped as unhandled 500s. `response.choices[0]` raised `IndexError` on a valid response with no choices. `APIResponseValidationError` sits beside `APIStatusError` in the SDK's error hierarchy, so the `except` chain never caught it. Code review found both. The fix adds an explicit empty-choices check, that exception, and a final `OpenAIError` catch-all. Each new test was confirmed to fail with its fix removed.
 
+11. **The first guardrail only checked IDs.** The AI's first version of the citation guardrail checked that cited IDs had been shown to the model, but still returned the model's free-text reasons and next steps. Those could contain invented details, which the brief forbids as a hard requirement. Code review flagged it. The fix makes the model quote evidence, which code verifies word for word against the record, and builds next steps from stored resolution summaries (ADR 0005). A live run confirmed the model quotes exactly, with no citations dropped.
+
 ## How changes were validated
 
 - Unit tests for each ticket (`uv run pytest`), plus `ruff`.

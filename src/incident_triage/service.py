@@ -7,10 +7,21 @@ from typing import Any
 import structlog
 from pydantic import ValidationError
 
+from incident_triage.assist import (
+    ANALYSIS_SYSTEM_PROMPT,
+    INSUFFICIENT_NEXT_STEPS,
+    TriageAnalysis,
+    apply_guardrail,
+    build_analysis_input,
+    build_next_steps,
+    dedupe_by_title,
+)
 from incident_triage.errors import AppError, NotFoundError
 from incident_triage.llm import LLMClient
 from incident_triage.models import (
     AssistRequest,
+    AssistResponse,
+    CitedIncident,
     Incident,
     IngestResult,
     SearchPage,
@@ -22,6 +33,8 @@ from incident_triage.repository import IncidentRepository
 MAX_INGEST_LINES = 1000
 MAX_REPORTED_ERRORS = 50
 CANDIDATE_LIMIT = 10
+# Replaced by the Customer Draft call in ticket 06, step 3.
+PENDING_CUSTOMER_DRAFT = "Customer draft is not implemented yet."
 
 log = structlog.get_logger()
 
@@ -95,6 +108,60 @@ class IncidentService:
             ],
         )
         return candidates
+
+    def assist(self, request: AssistRequest) -> AssistResponse:
+        candidates = self.find_candidates(request)
+        if not candidates:  # nothing to ground an answer in: don't call the LLM
+            return self._insufficient("no_candidates")
+
+        shown = dedupe_by_title(candidates)
+        records = [r for r in (self._repository.get(c.id) for c in shown) if r is not None]
+        log.info(
+            "assist_step",
+            step="llm:analyze",
+            phase="input",
+            candidate_ids=[r.id for r in records],
+            collapsed_duplicates=len(candidates) - len(shown),
+        )
+        analysis = self._llm.complete(
+            system=ANALYSIS_SYSTEM_PROMPT,
+            user=build_analysis_input(request.question, records),
+            output=TriageAnalysis,
+        )
+        by_id = {r.id: r for r in records}
+        guarded = apply_guardrail(analysis, shown=by_id)
+        log.info(
+            "assist_step",
+            step="guardrail",
+            selected_ids=[c.id for c in guarded.cited],
+            dropped=guarded.dropped,
+            insufficient=guarded.insufficient,
+        )
+        if guarded.insufficient:
+            flagged = analysis.insufficient_context
+            return self._insufficient("model_said_insufficient" if flagged else "none_verified")
+
+        # Everything below comes from stored records or verified quotes, not model prose.
+        return AssistResponse(
+            relevant_incidents=[
+                CitedIncident(
+                    id=c.id, title=by_id[c.id].title, reason=f"Record states: “{c.evidence}”"
+                )
+                for c in guarded.cited
+            ],
+            next_steps=build_next_steps([by_id[c.id] for c in guarded.cited]),
+            customer_draft=PENDING_CUSTOMER_DRAFT,
+            insufficient_context=False,
+        )
+
+    def _insufficient(self, reason: str) -> AssistResponse:
+        log.info("assist_insufficient", reason=reason)
+        return AssistResponse(
+            relevant_incidents=[],
+            next_steps=INSUFFICIENT_NEXT_STEPS,
+            customer_draft=PENDING_CUSTOMER_DRAFT,
+            insufficient_context=True,
+        )
 
     def get_incident(self, incident_id: int) -> Incident:
         incident = self._repository.get(incident_id)

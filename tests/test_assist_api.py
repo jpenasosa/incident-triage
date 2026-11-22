@@ -1,24 +1,36 @@
 from factories import incident_dict, ndjson
+from factories import make_analysis as analysis
 from fakes import FakeLLMClient
+
+from incident_triage.llm import AssistUnavailable
 
 NDJSON = {"Content-Type": "application/x-ndjson"}
 
 
-def test_assist_returns_canned_response_shape(app, client):
-    app.state.llm = FakeLLMClient()
+def test_assist_returns_cited_incidents(app, client):
+    app.state.llm = FakeLLMClient(analysis((1, "SSO login timeout")))
     client.post(
         "/ingest", content=ndjson(incident_dict(id=1, title="SSO login timeout")), headers=NDJSON
     )
 
     resp = client.post("/assist", json={"question": "sso login failing"})
 
+    body = resp.json()
     assert resp.status_code == 200
-    assert set(resp.json()) == {
-        "relevant_incidents",
-        "next_steps",
-        "customer_draft",
-        "insufficient_context",
-    }
+    assert body["relevant_incidents"] == [
+        {"id": 1, "title": "SSO login timeout", "reason": "Record states: “SSO login timeout”"}
+    ]
+    assert body["insufficient_context"] is False
+
+
+def test_llm_error_is_503(app, client):
+    app.state.llm = FakeLLMClient(AssistUnavailable("timed out after 20.0s"))
+    client.post("/ingest", content=ndjson(incident_dict(id=1, title="SSO")), headers=NDJSON)
+
+    resp = client.post("/assist", json={"question": "sso"})
+
+    assert resp.status_code == 503
+    assert "timed out" not in resp.text
 
 
 def test_assist_without_key_is_503(client):  # the default test settings have no LLM_API_KEY
