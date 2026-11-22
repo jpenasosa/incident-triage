@@ -20,6 +20,6 @@ A Customer Draft never needs to describe an Incident. It does one of a few jobs,
 ## Consequences
 
 - No model writes customer-facing text, so nothing in the draft can be invented or leak an identifier. The allowlist, the second LLM call and the identifier backstop are gone.
-- Assist makes one LLM call, which makes it faster and cheaper. Drafts are deterministic, which makes tests simple.
+- Assist made one LLM call (until ADR 0007 added tool calling), which made it faster and cheaper. Drafts are deterministic, which makes tests simple.
 - Drafts are formulaic. Five coarse templates are enough for this prototype, and a production system would add more granular ones (for example per product area or per workaround).
 - The choice of a status reply (`investigating`, `fix_in_progress` or `fix_delivered`) is the model's classification of the engineer's question, and code can't verify it. The prompt allows these only when the question says so, and a past Incident's resolution doesn't count. The default, `acknowledged`, claims no status: it only confirms receipt and promises a follow-up. (Code review flagged the first version, whose default `investigating` asserted a status nobody had confirmed.)

@@ -23,7 +23,7 @@ _Avoid_: Priority, P1–P4, criticality
 ## Assist
 
 **Candidate**:
-An Incident retrieved by search for a question, and therefore eligible to be cited.
+An Incident returned by a search the assistant ran for a question (through the `search_incidents` tool), and therefore eligible to be cited.
 _Avoid_: Result, hit (in assist context)
 
 **Cited Incident**:

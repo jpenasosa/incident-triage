@@ -1,6 +1,6 @@
 from factories import incident_dict, ndjson
 from factories import make_analysis as analysis
-from fakes import FakeLLMClient
+from fakes import FakeLLMClient, search
 
 from incident_triage.assist import CUSTOMER_DRAFTS
 from incident_triage.llm import AssistUnavailable
@@ -9,7 +9,9 @@ NDJSON = {"Content-Type": "application/x-ndjson"}
 
 
 def test_assist_returns_cited_incidents(app, client):
-    app.state.llm = FakeLLMClient(analysis((1, "SSO login timeout"), reply="fix_in_progress"))
+    app.state.llm = FakeLLMClient(
+        search("sso login"), analysis((1, "SSO login timeout"), reply="fix_in_progress")
+    )
     client.post(
         "/ingest", content=ndjson(incident_dict(id=1, title="SSO login timeout")), headers=NDJSON
     )

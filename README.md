@@ -128,7 +128,7 @@ curl -s -X POST http://localhost:8000/assist \
 
 ```json
 {"relevant_incidents": [{"id": 258, "title": "Users unable to log in via single sign-on",
-   "reason": "Record states: “SSO logins failed with an 'invalid assertion' error for 226 minutes.”"}],
+   "reason": "Record states: “SSO logins failed with an 'invalid assertion' error”"}],
  "next_steps": ["Incident 258 was resolved by: An expired signing certificate was rotated. Added certificate expiry monitoring with a 30-day warning.",
                 "Confirm the affected service, environment and start time match the cited incidents.",
                 "Check for recent deployments or configuration changes in the affected service."],
@@ -140,29 +140,37 @@ The body takes `question` (1–2000 characters, not blank) plus the same optiona
 
 **How it works.** Each step is logged under the request's correlation ID:
 
-1. **`tool:search`:** the question runs through the same search as `GET /search`, returning the top 10 Candidates. Candidates with the same title are collapsed.
-2. **`llm:analyze`:** the LLM picks up to 5 relevant Incidents and quotes evidence from each one.
+1. **`llm:analyze`:** the LLM gets the question and any filters you set, plus a `search_incidents` tool (ADR 0007).
+2. **`tool:search`:** each tool call runs the same search as `GET /search` with the model's query and returns the full records of the top 10 Candidates. Candidates with the same title are collapsed. The model must search at least once and may search up to 3 times, for example with other words when the first search finds nothing useful. Filters in your request always win over the model's, and an override is logged as `overridden`. The model then picks up to 5 relevant Incidents and quotes evidence from each one.
 3. **`guardrail`:** code drops any citation of an Incident the model wasn't shown, and any whose quote isn't in the stored record. `reason` is that verified quote, and `next_steps` quote the stored resolutions plus fixed steps (ADR 0005).
-4. **`draft`:** `customer_draft` is a prepared template chosen by the model's `customer_reply`: `request_details`, `acknowledged`, `investigating`, `fix_in_progress` or `fix_delivered` (ADR 0006). No model writes customer-facing text. The default is the neutral `acknowledged`. Replies that state a status (`investigating`, `fix_in_progress`, `fix_delivered`) are chosen only when the question says so. In the example above, the question gives no start time, so the draft asks for details. Assist makes one LLM call.
+4. **`draft`:** `customer_draft` is a prepared template chosen by the model's `customer_reply`: `request_details`, `acknowledged`, `investigating`, `fix_in_progress` or `fix_delivered` (ADR 0006). No model writes customer-facing text. The default is the neutral `acknowledged`. Replies that state a status (`investigating`, `fix_in_progress`, `fix_delivered`) are chosen only when the question says so. In the example above, the question gives no start time, so the draft asks for details. Assist makes 2–4 LLM calls: one per search, plus the answer.
 
-**When nothing relevant is found** (no search hits, the model says so, or no citation survives the guardrail), the response has `insufficient_context: true`, no Incidents, and next steps and a draft that ask for more information.
+**When nothing relevant is found** (no search returned anything, the model says so, or no citation survives the guardrail), the response has `insufficient_context: true`, no Incidents, and next steps and a draft that ask for more information.
 
 ### Validating the Customer Reply
 
-These questions exercise each Customer Reply. The "Observed" column is from a live run against the generated dataset with `gpt-6-luna`. The model makes the choice, so other models or prompt changes may differ. Treat a different result as something to investigate, not necessarily a bug.
+These questions exercise each Customer Reply, plus two retrieval cases (rows 9 and 10). The "Observed" column is from two live runs against the generated dataset with `gpt-6-luna`. The model makes the choice, so other models or prompt changes may differ. Treat a different result as something to investigate, not necessarily a bug.
 
-| # | Body | Expected `customer_reply` | Observed (cited) |
+| # | Body | Expected | Observed |
 | --- | --- | --- | --- |
-| 1 | `{"question": "why can't I log in?", "service": "auth", "severity": "SEV1"}` | `request_details`: no error, time or scale given | `request_details` (258) |
-| 2 | `{"question": "why can't I log in?"}` | `request_details` | `request_details` (281) |
-| 3 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am", "environment": "prod"}` | `acknowledged`: nothing says anyone is investigating yet | `acknowledged` (258) |
-| 4 | `{"question": "Hourly employees' overtime was calculated at the wrong rate in this week's payroll run"}` | `acknowledged` | `acknowledged` (241) |
-| 5 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am; the auth team is looking into it now", "environment": "prod"}` | `investigating` | `investigating` (258) |
-| 6 | `{"question": "SSO invalid assertion errors again; we found the expired signing certificate and are rotating it now"}` | `fix_in_progress` | `fix_in_progress` (281) |
-| 7 | `{"question": "Customer reported SSO invalid assertion errors yesterday; we rotated the expired certificate this morning and the fix is deployed"}` | `fix_delivered` | `fix_delivered` (281) |
-| 8 | `{"question": "Overtime rates were wrong in payroll; the corrected calculation shipped in today's release"}` | `fix_delivered` | `fix_delivered` (241) |
+| 1 | `{"question": "why can't I log in?", "service": "auth", "severity": "SEV1"}` | `request_details`: no error, time or scale given | `request_details` |
+| 2 | `{"question": "why can't I log in?"}` | `request_details` | `request_details` |
+| 3 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am", "environment": "prod"}` | `acknowledged`: nothing says anyone is investigating yet | `acknowledged` |
+| 4 | `{"question": "Hourly employees' overtime was calculated at the wrong rate in this week's payroll run"}` | `acknowledged` | `acknowledged` |
+| 5 | `{"question": "Customers report SSO login fails with an invalid assertion error since 9am; the auth team is looking into it now", "environment": "prod"}` | `investigating` | `investigating` |
+| 6 | `{"question": "SSO invalid assertion errors again; we found the expired signing certificate and are rotating it now"}` | `fix_in_progress` | `fix_in_progress` |
+| 7 | `{"question": "Customer reported SSO invalid assertion errors yesterday; we rotated the expired certificate this morning and the fix is deployed"}` | `fix_delivered` | `fix_delivered` |
+| 8 | `{"question": "Overtime rates were wrong in payroll; the corrected calculation shipped in today's release"}` | `fix_delivered` | `fix_delivered` |
+| 9 | `{"question": "Payroll overtime looks wrong for our hourly staff", "service": "timekeeping"}` | `request_details`, and every `tool:search` keeps `service: timekeeping` | `request_details`, with all 3 searches filtered on `timekeeping` |
+| 10 | `{"question": "The office coffee machine is leaking water onto the carpet"}` | `request_details` through insufficient `no_candidates` | `request_details`, 2 searches with 0 hits |
 
-The response contains the draft text, not the reply name. The `draft` log line records the choice under the request's correlation ID, for example `{"step": "draft", "customer_reply": "fix_in_progress", "source": "template", ...}`. If the server's output is saved to `server.log`, this loop sends the eight questions as `qa-1` to `qa-8` and prints the reply chosen for each one:
+The reply matched every row in two live runs. Some details differed between the runs:
+
+- which incident was cited
+- how many searches the model ran (1 to 3)
+- whether rows 2 and 9 cited an incident or took the insufficient path. Both give `request_details`.
+
+The response contains the draft text, not the reply name. The `draft` log line records the choice under the request's correlation ID, for example `{"step": "draft", "customer_reply": "fix_in_progress", "source": "template", ...}`. If the server's output is saved to `server.log`, this loop sends the ten questions as `qa-1` to `qa-10` and prints the reply chosen for each one. The `draft` step is logged on the insufficient paths too. The `tool:search` lines show the model's queries:
 
 ```bash
 uv run start > server.log 2>&1 &   # with data ingested
@@ -181,12 +189,14 @@ done <<'EOF'
 {"question": "SSO invalid assertion errors again; we found the expired signing certificate and are rotating it now"}
 {"question": "Customer reported SSO invalid assertion errors yesterday; we rotated the expired certificate this morning and the fix is deployed"}
 {"question": "Overtime rates were wrong in payroll; the corrected calculation shipped in today's release"}
+{"question": "Payroll overtime looks wrong for our hourly staff", "service": "timekeeping"}
+{"question": "The office coffee machine is leaking water onto the carpet"}
 EOF
 
-grep '"step": "draft"' server.log | grep -o '"customer_reply": "[a-z_]*".*"correlation_id": "qa-[0-9]"'
+grep '"step": "draft"' server.log | grep -o '"customer_reply": "[a-z_]*".*"correlation_id": "qa-[0-9]*"'
 ```
 
-Each assist makes one LLM call, so the loop makes eight.
+Each assist makes 2–4 LLM calls, so the loop makes about 20–40.
 
 ### Troubleshooting assist
 
