@@ -28,6 +28,8 @@
 
 12. **The output checks were narrower than they looked.** The draft prompt asked for at most 120 words, but nothing checked the output. The hostname check only knew 10 suffixes, so it missed `.ca`, `.uk` and others, and the IP check was IPv4-only. Code review caught all three. The fix adds a word-count check, a generic hostname pattern and IP detection through `ipaddress`, covering IPv6, brackets, zones and ports. Running the new cases through the old function confirmed it missed all five of them.
 
+13. **The allowlist addressed leaks, not invention.** ADR 0003 kept Internal Identifiers away from the draft call, but the model still wrote the draft, so it could claim details the records don't support. The AI recorded this as an "open product decision" instead of fixing it. An external review against the brief flagged it as a hard-requirement gap. The fix replaces the draft call with prepared templates chosen by a model-picked Customer Reply (ADR 0006).
+
 ## How changes were validated
 
 - Unit tests for each ticket (`uv run pytest`), plus `ruff`.

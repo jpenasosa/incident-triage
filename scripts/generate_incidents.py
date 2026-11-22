@@ -4,7 +4,7 @@
 
 The same seed with the same pinned `faker` version gives byte-identical output.
 Free text (title, description, resolution_summary) is customer-visible by business
-rule (ADR 0003), so templates contain no Internal Identifiers: no hostnames, request
+rule, so templates contain no Internal Identifiers: no hostnames, request
 IDs, emails or person names.
 """
 
@@ -16,15 +16,13 @@ from pathlib import Path
 
 from faker import Faker
 
-from incident_triage.models import Environment, ImpactCategory, Incident, Service, Severity
+from incident_triage.models import Environment, Incident, Service, Severity
 
-# Each template is one failure mode of a Service, tagged with the Impact Category a
-# customer would see. Placeholders are filled per Incident.
+# Each template is one failure mode of a Service. Placeholders are filled per Incident.
 TEMPLATES: dict[Service, list[dict]] = {
     Service.PAYROLL: [
         {
             "title": "Payroll run delayed for {weekday} pay cycle",
-            "impact": ImpactCategory.PAY_CALCULATION,
             "description": "The scheduled payroll run did not complete within its window. "
             "About {count} employees saw pay statements stuck in 'processing' for "
             "{minutes} minutes.",
@@ -35,7 +33,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Overtime calculated at the wrong rate",
-            "impact": ImpactCategory.PAY_CALCULATION,
             "description": "Overtime hours were paid at the standard rate instead of 1.5x "
             "for roughly {count} hourly employees after a pay rule change.",
             "resolution": "Corrected the overtime multiplier in the pay rule and ran an "
@@ -45,7 +42,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Tax withholding missing for new state",
-            "impact": ImpactCategory.PAY_CALCULATION,
             "description": "Employees who moved to a new work state had no state tax "
             "withheld. {count} pay statements were affected.",
             "resolution": "Added the missing state tax jurisdiction mapping and corrected "
@@ -57,7 +53,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.TIMEKEEPING: [
         {
             "title": "Clock-in punches not syncing from terminals",
-            "impact": ImpactCategory.TIME_TRACKING,
             "description": "Time clock punches were not appearing in timesheets for "
             "{minutes} minutes. Around {count} employees saw missing punches.",
             "resolution": "The punch sync queue was backed up; it was drained and its "
@@ -67,7 +62,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Timesheet approval button unresponsive",
-            "impact": ImpactCategory.TIME_TRACKING,
             "description": "Managers could not approve timesheets; the approve action "
             "spun indefinitely. Reported by {count} managers before the pay cutoff.",
             "resolution": "Rolled back a front-end release that broke the approval form "
@@ -77,7 +71,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Daylight saving shift double-counted hours",
-            "impact": ImpactCategory.TIME_TRACKING,
             "description": "Overnight shifts spanning the daylight saving change recorded "
             "an extra hour for {count} employees.",
             "resolution": "Fixed shift duration calculation to use time-zone-aware "
@@ -89,7 +82,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.AUTH: [
         {
             "title": "Users unable to log in via single sign-on",
-            "impact": ImpactCategory.LOGIN_ACCESS,
             "description": "SSO logins failed with an 'invalid assertion' error for "
             "{minutes} minutes. About {pct}% of login attempts were affected.",
             "resolution": "An expired signing certificate was rotated. Added certificate "
@@ -99,7 +91,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Password reset emails not arriving",
-            "impact": ImpactCategory.LOGIN_ACCESS,
             "description": "Users requesting a password reset did not receive the email. "
             "{count} reset requests went undelivered over {minutes} minutes.",
             "resolution": "The email provider's rate limit was raised and the queued reset "
@@ -109,7 +100,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Sessions expiring after a few minutes",
-            "impact": ImpactCategory.LOGIN_ACCESS,
             "description": "Users were logged out unexpectedly after about {short} "
             "minutes instead of the configured session length.",
             "resolution": "A configuration change shortened the session timeout; it was "
@@ -121,7 +111,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.BENEFITS: [
         {
             "title": "Open enrollment page timing out",
-            "impact": ImpactCategory.PERFORMANCE,
             "description": "The benefits enrollment page timed out for many employees "
             "during open enrollment. Error rate peaked at {pct}% for {minutes} minutes.",
             "resolution": "Added an index for the plan eligibility query and scaled out "
@@ -131,7 +120,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Dependent coverage missing after enrollment",
-            "impact": ImpactCategory.OTHER,
             "description": "Employees who added dependents saw only employee-only coverage "
             "on their confirmation. {count} enrollments were affected.",
             "resolution": "Fixed the dependent mapping in the enrollment save step and "
@@ -141,7 +129,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Benefit deduction amounts out of date",
-            "impact": ImpactCategory.PAY_CALCULATION,
             "description": "Payroll deductions used last year's premium amounts for "
             "{count} employees.",
             "resolution": "Refreshed premium rates from the carrier feed and scheduled "
@@ -153,7 +140,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.SCHEDULING: [
         {
             "title": "Shift swap requests stuck pending",
-            "impact": ImpactCategory.DATA_DELAY,
             "description": "Shift swap requests were not reaching managers for approval. "
             "{count} requests were stuck pending for {minutes} minutes.",
             "resolution": "A failed background worker was restarted and pending swap "
@@ -163,7 +149,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Published schedules showing wrong week",
-            "impact": ImpactCategory.OTHER,
             "description": "Employees viewing their schedule saw the previous week's "
             "shifts after publishing on {weekday}.",
             "resolution": "Fixed a cache key that ignored the week start date and cleared "
@@ -173,7 +158,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Auto-scheduler ignoring availability",
-            "impact": ImpactCategory.OTHER,
             "description": "The auto-scheduler assigned shifts to employees outside their "
             "stated availability for {count} shifts.",
             "resolution": "Corrected the availability filter in the scheduling rules and "
@@ -185,7 +169,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.REPORTING: [
         {
             "title": "Labor cost report failing to generate",
-            "impact": ImpactCategory.REPORT_GENERATION,
             "description": "The labor cost report failed with a timeout for large "
             "organizations. {count} report requests failed.",
             "resolution": "Paginated the report query and moved large reports to "
@@ -195,7 +178,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Dashboard figures delayed by several hours",
-            "impact": ImpactCategory.DATA_DELAY,
             "description": "Workforce dashboards showed data {short} hours old instead of "
             "near real time.",
             "resolution": "The data refresh pipeline was stuck on a malformed record; the "
@@ -205,7 +187,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Exported CSV missing columns",
-            "impact": ImpactCategory.REPORT_GENERATION,
             "description": "Report exports omitted custom columns added by customers. "
             "{count} exports were affected.",
             "resolution": "Fixed the export column mapping for custom fields and added a "
@@ -217,7 +198,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.NOTIFICATIONS: [
         {
             "title": "Push notifications delayed",
-            "impact": ImpactCategory.NOTIFICATION_DELIVERY,
             "description": "Mobile push notifications arrived up to {minutes} minutes late "
             "for shift reminders.",
             "resolution": "Increased throughput on the notification dispatcher and added "
@@ -227,7 +207,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Duplicate email notifications sent",
-            "impact": ImpactCategory.NOTIFICATION_DELIVERY,
             "description": "Employees received the same approval notification email {short} times.",
             "resolution": "Made the notification sender idempotent with a per-message "
             "deduplication key.",
@@ -236,7 +215,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "SMS alerts not delivered",
-            "impact": ImpactCategory.NOTIFICATION_DELIVERY,
             "description": "SMS shift alerts failed for {pct}% of recipients for "
             "{minutes} minutes.",
             "resolution": "Failed over to the secondary SMS provider and re-sent failed alerts.",
@@ -247,7 +225,6 @@ TEMPLATES: dict[Service, list[dict]] = {
     Service.INTEGRATIONS: [
         {
             "title": "HRIS employee sync failing",
-            "impact": ImpactCategory.INTEGRATION_SYNC,
             "description": "The nightly employee sync from the customer's HR system "
             "failed. {count} employee changes were not applied.",
             "resolution": "The partner API changed a field format; the mapping was "
@@ -257,7 +234,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "General ledger export rejected",
-            "impact": ImpactCategory.INTEGRATION_SYNC,
             "description": "The payroll general ledger export was rejected by the finance "
             "system due to an invalid date format.",
             "resolution": "Corrected the export date format and re-sent the ledger file.",
@@ -266,7 +242,6 @@ TEMPLATES: dict[Service, list[dict]] = {
         },
         {
             "title": "Webhook deliveries timing out",
-            "impact": ImpactCategory.INTEGRATION_SYNC,
             "description": "Outbound webhooks to customer endpoints timed out for "
             "{minutes} minutes; {count} events were retried.",
             "resolution": "Reduced webhook payload size and added exponential backoff "

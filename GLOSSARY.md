@@ -31,16 +31,12 @@ A Candidate the assistant selected as relevant to the question, with a stated re
 _Avoid_: Source, reference
 
 **Customer Draft**:
-A short reply meant for the affected customer, built only from customer-safe values and never from Incident free text.
+A short reply meant for the affected customer: the prepared template for the chosen Customer Reply, never text written by a model or taken from an Incident.
 _Avoid_: Response, customer message
 
-**Impact Category**:
-A customer-safe label for what a problem affects (for example login access, pay calculation or data delay), drawn from a fixed list.
-_Avoid_: Symptom, area
-
-**Customer Status**:
-A customer-safe label for where a problem stands: investigating, identified, mitigated or resolved.
-_Avoid_: State, phase
+**Customer Reply**:
+Which prepared Customer Draft fits the question: request_details, investigating, fix_in_progress or fix_delivered.
+_Avoid_: Customer status, reply type
 
 **Internal Identifier**:
 Any value that must never reach a customer, such as an Incident ID, hostname, IP address, email address, or request ID.

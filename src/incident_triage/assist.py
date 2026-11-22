@@ -1,12 +1,12 @@
-"""Assist building blocks: the internal analysis call's schema and prompt, and the
-deterministic guardrails around it. Orchestration lives in IncidentService.assist().
+"""Assist building blocks: the analysis call's schema and prompt, and the deterministic
+guardrails around it. Orchestration lives in IncidentService.assist().
 
-No unverified model prose reaches the response. The model selects Incidents and quotes
-evidence from them; code verifies each quote against the stored record and builds the
-next steps from stored resolution summaries plus fixed process steps.
+No unverified model prose reaches the response (ADR 0005). The model selects Incidents,
+quotes evidence from them and picks a Customer Reply; code verifies each quote against
+the stored record, builds the next steps from stored resolution summaries plus fixed
+process steps, and takes the Customer Draft from a prepared template (ADR 0006).
 """
 
-import ipaddress
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict
 
-from incident_triage.models import CustomerStatus, ImpactCategory, Incident, SearchResult
+from incident_triage.models import CustomerReply, Incident, SearchResult
 
 MAX_CITATIONS = 5
 MIN_EVIDENCE_WORDS = 3
@@ -46,8 +46,12 @@ Rules:
   combine sentences. Citations whose evidence is not found verbatim are discarded.
 - If none of the incidents is relevant to the question, set insufficient_context to true
   and return an empty relevant_incidents list.
-- customer_status, impact_category and customer_action_needed describe the engineer's
-  problem for a customer-facing reply: pick the closest values.
+- customer_reply picks the prepared reply the engineer can send the customer:
+  - fix_delivered: only if the question says a fix has been shipped or deployed.
+  - fix_in_progress: only if the question says the cause is known and a fix is underway.
+  - request_details: the question lacks what is needed to act (affected area, error, timing).
+  - investigating: anything else.
+  A past incident's resolution is not evidence that the current problem is fixed.
 """
 
 
@@ -65,9 +69,7 @@ class TriageAnalysis(BaseModel):
 
     relevant_incidents: list[AnalysisCitation]
     insufficient_context: bool
-    customer_status: CustomerStatus
-    impact_category: ImpactCategory
-    customer_action_needed: bool
+    customer_reply: CustomerReply
 
 
 @dataclass(frozen=True)
@@ -144,106 +146,25 @@ def build_next_steps(cited_records: Sequence[Incident]) -> list[str]:
     return steps + STANDARD_NEXT_STEPS
 
 
-# --- Customer Draft (call 2, ADR 0003) ---------------------------------------------------
+# --- Customer Draft (ADR 0006) ----------------------------------------------------------
 
-MAX_DRAFT_WORDS = 120
-
-DRAFT_SYSTEM_PROMPT = f"""\
-You write a short, friendly reply that a support engineer can send to a customer who
-reported a problem. You receive only the problem's status, impact category, whether the
-customer needs to act, and summaries of related past incidents.
-
-Rules:
-- At most {MAX_DRAFT_WORDS} words, plain text, no headings or lists.
-- Base every statement on the context provided. Do not promise timelines or fixes.
-- Do not mention internal systems, hostnames, IP addresses, email addresses, ticket or
-  incident numbers, or people.
-- If customer_action_needed is true, ask the customer to confirm details or retry as
-  appropriate; otherwise tell them no action is needed from them.
-"""
-
-INSUFFICIENT_CUSTOMER_DRAFT = (
-    "Thank you for reaching out. To help us investigate, could you tell us which part of "
-    "the product is affected, when the problem started, the exact error message you see, "
-    "and roughly how many users are affected?"
-)
-SAFE_CUSTOMER_DRAFT = (
-    "Thank you for reporting this. Our team is looking into it and will follow up with an "
-    "update as soon as we have more information."
-)
-
-# Backstop patterns for Internal Identifiers. Deliberately broad: a false positive only
-# costs a generic (safe) draft, a false negative leaks an identifier.
-_URL = re.compile(r"\b[a-z][a-z0-9+.-]*://", re.IGNORECASE)
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# Any dotted name ending in an alphabetic label of 2+ characters: status.example.ca,
-# intranet.example.uk, db-prod-03.internal. (Also flags names like "Node.js": acceptable.)
-_HOSTNAME = re.compile(r"\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\b", re.IGNORECASE)
-# Tokens that could be IP literals; ipaddress decides. Covers IPv4, IPv6 (compressed,
-# bracketed, with zone) and IPv4:port.
-_IP_CANDIDATE = re.compile(r"[0-9a-f:.%\[\]]*[.:][0-9a-f:.%\[\]]*", re.IGNORECASE)
-
-
-class CustomerDraft(BaseModel):
-    """Structured output of the Customer Draft call."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    draft: str
-
-
-def build_draft_context(analysis: TriageAnalysis, cited_records: Sequence[Incident]) -> str:
-    """The only input the draft call sees (ADR 0003): customer-safe enums plus allowlisted
-    fields of the Cited Incidents. No ids, no engineer question, no uncited Candidates."""
-    context = {
-        "customer_status": analysis.customer_status.value,
-        "impact_category": analysis.impact_category.value,
-        "customer_action_needed": analysis.customer_action_needed,
-        "related_past_incidents": [
-            r.model_dump(
-                mode="json",
-                include={"service", "severity", "title", "description", "resolution_summary"},
-            )
-            for r in cited_records
-        ],
-    }
-    return json.dumps(context, indent=1)
-
-
-def _is_ip_literal(token: str) -> bool:
-    token = token.strip("[]").rstrip(".,;")
-    candidates = {token, token.split("%")[0]}  # IPv6 zone index, e.g. fe80::1%eth0
-    if token.count(":") == 1:  # IPv4:port
-        candidates.add(token.split(":")[0])
-    for candidate in candidates:
-        try:
-            ipaddress.ip_address(candidate)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
-def internal_identifier_matches(text: str) -> list[str]:
-    """Names of the Internal Identifier kinds found in `text` (empty if clean)."""
-    found = []
-    if _URL.search(text):
-        found.append("url")
-    if _EMAIL.search(text):
-        found.append("email")
-    if any(_is_ip_literal(t) for t in _IP_CANDIDATE.findall(text)):
-        found.append("ip_address")
-    if _HOSTNAME.search(text):
-        found.append("hostname")
-    return found
-
-
-def draft_rejection_reasons(draft: str) -> list[str]:
-    """Why a Customer Draft can't be returned as is (empty if it can)."""
-    reasons = internal_identifier_matches(draft)
-    words = len(draft.split())
-    if words == 0:
-        reasons.append("empty")
-    elif words > MAX_DRAFT_WORDS:
-        reasons.append("too_long")
-    return reasons
+# Fixed texts: no Incident details, timelines or promises, so nothing can be invented.
+CUSTOMER_DRAFTS: dict[CustomerReply, str] = {
+    CustomerReply.REQUEST_DETAILS: (
+        "Thank you for reaching out. To help us investigate, could you tell us which part of "
+        "the product is affected, when the problem started, the exact error message you see, "
+        "and roughly how many users are affected?"
+    ),
+    CustomerReply.INVESTIGATING: (
+        "Thank you for reporting this. We're investigating the issue and will get back to you "
+        "with an update as soon as we have more information."
+    ),
+    CustomerReply.FIX_IN_PROGRESS: (
+        "Thank you for reporting this. We've identified the cause and are working on a fix. "
+        "We'll let you know as soon as it's in place."
+    ),
+    CustomerReply.FIX_DELIVERED: (
+        "Thank you for your patience. A fix for this issue has been delivered. If you still "
+        "see the problem, please reply with the exact error message and when it happened."
+    ),
+}

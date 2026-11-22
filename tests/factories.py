@@ -1,8 +1,8 @@
 import json
 from typing import Any
 
-from incident_triage.assist import AnalysisCitation, CustomerDraft, TriageAnalysis
-from incident_triage.models import Incident, SearchResult
+from incident_triage.assist import AnalysisCitation, TriageAnalysis
+from incident_triage.models import CustomerReply, Incident, SearchResult
 
 
 def incident_dict(**overrides: Any) -> dict[str, Any]:
@@ -42,16 +42,14 @@ def make_result(id: int, **overrides: Any) -> SearchResult:
     return SearchResult.model_validate(data | overrides)
 
 
-def make_analysis(*citations: tuple[int, str], insufficient: bool = False) -> TriageAnalysis:
+def make_analysis(
+    *citations: tuple[int, str],
+    insufficient: bool = False,
+    reply: CustomerReply = CustomerReply.INVESTIGATING,
+) -> TriageAnalysis:
     """`citations` are (incident id, evidence quote) pairs."""
     return TriageAnalysis(
         relevant_incidents=[AnalysisCitation(id=i, evidence=e) for i, e in citations],
         insufficient_context=insufficient,
-        customer_status="identified",
-        impact_category="login_access",
-        customer_action_needed=False,
+        customer_reply=reply,
     )
-
-
-def make_draft(text: str = "We are aware of the issue and our team is on it.") -> CustomerDraft:
-    return CustomerDraft(draft=text)

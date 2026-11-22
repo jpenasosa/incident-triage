@@ -286,3 +286,36 @@ These are the prompts used with AI tools during the build, recorded as they were
   * For the draft, chose prepared templates over a stricter prompt, because templates are deterministic and verifiable. The four coarse templates are accepted as prototype scope.
   * Kept 1–5 citations instead of padding to 3.
   * Skipped ticket 07 for time.
+
+---
+
+**Prompt #10**
+
+* Tool used: Claude Code (Claude Opus 5.5)
+* Goal: Close review finding 1 (the Customer Draft could invent incident details) in ticket 11.
+* Prompt (copy/paste):
+
+  ```
+  I'm re-thinking ticket 11. The framing of the requirement is that incident details should not be
+  made up. I am wondering if we can refine the instructions on the `customer_draft` to ensure that
+  the draft itself is not talking about the the incident itself but rather focuses on one of the
+  following:
+  - request additional details
+  - inform customers that a fix has been delivered or is being worked on
+  - inform customers that the issue is being investigated and we will get back to them
+
+  On the other hand these cases are narrow enough that we could use prepared templates instead of
+  an LLM call. It would also make the response more deterministic which is helpful for testing.
+  ```
+* Result summary:
+  * The AI recommended templates over tighter instructions, because a prompt alone can't enforce anything. It also flagged that a past incident's resolution says nothing about whether *this* customer's problem is fixed. So the fix replies are allowed only when the question says so, with `investigating` as the default.
+  * Implementation (ADR 0006): `customer_reply` replaces the three draft enums. This removed the second LLM call, the allowlist and the identifier backstop, about 220 lines in all. A live run picked `investigating` and `fix_in_progress` correctly.
+* Any follow up prompt(s) (copy/paste if important):
+
+  ```
+  The narrower templates are fine for a prototype which we can consider to be the case for this
+  project. For a production application we could expand templates to be more granular, we don't
+  need to worry about that here.
+  ```
+* What you kept: the four templates, the fix-status rule, and removing the backstop and the draft call.
+* What you changed manually (and why): _(to fill in after review)_
